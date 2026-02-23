@@ -72,11 +72,14 @@ async def _save_session_token(
     state_store: DiscordStateStore | None,
     guild_id: int | None,
     session_key: int,
+    author_id: int | None,
     token: ResumeToken,
 ) -> None:
     if state_store is None or guild_id is None:
         return
-    await state_store.set_session(guild_id, session_key, token.engine, token.value)
+    await state_store.set_session(
+        guild_id, session_key, token.engine, token.value, author_id=author_id
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +293,7 @@ class _MediaGroupState:
     items: list[_MediaItem] = field(default_factory=list)
     guild_id: int | None = None
     channel_id: int | None = None
+    author_id: int | None = None
     thread_id: int | None = None
     job_channel_id: int | None = None
     engine_id: str | None = None
@@ -341,6 +345,7 @@ class MediaGroupBuffer:
         state.token += 1
         state.guild_id = guild_id
         state.channel_id = channel_id
+        state.author_id = author_id
         state.thread_id = thread_id
         state.job_channel_id = job_channel_id
         state.engine_id = engine_id
@@ -524,6 +529,7 @@ async def run_main_loop(
         resume_token: ResumeToken | None,
         context: RunContext | None,
         engine_id: str | None,
+        author_id: int | None = None,
         thread_id: int | None = None,
         reply_ref: MessageRef | None = None,
         guild_id: int | None = None,
@@ -616,6 +622,7 @@ async def run_main_loop(
                         state_store=state_store,
                         guild_id=guild_id,
                         session_key=save_key,
+                        author_id=author_id,
                         token=new_token,
                     )
                     if state_store and guild_id:
@@ -623,6 +630,7 @@ async def run_main_loop(
                             "session.saved",
                             guild_id=guild_id,
                             session_key=save_key,
+                            author_id=author_id,
                             engine_id=new_token.engine,
                         )
                     else:
@@ -658,9 +666,12 @@ async def run_main_loop(
     async def run_thread_job(job: ThreadJob) -> None:
         guild_id: int | None = None
         parent_channel_id: int | None = None
+        author_id: int | None = None
         if job.session_key is not None:
             guild_id = job.session_key[0]
             parent_channel_id = job.session_key[1]
+            if len(job.session_key) >= 3 and isinstance(job.session_key[2], int):
+                author_id = job.session_key[2]
 
         engine_id = job.resume_token.engine
         run_options: EngineRunOptions | None = None
@@ -685,6 +696,7 @@ async def run_main_loop(
             resume_token=job.resume_token,
             context=job.context,
             engine_id=engine_id,
+            author_id=author_id,
             thread_id=cast(int | None, job.thread_id),
             reply_ref=None,
             guild_id=guild_id,
@@ -806,6 +818,7 @@ async def run_main_loop(
             resume_token=state.resume_token,
             context=state.context,
             engine_id=engine_id,
+            author_id=state.author_id,
             thread_id=state.thread_id,
             reply_ref=None,
             guild_id=state.guild_id,
@@ -1041,10 +1054,14 @@ async def run_main_loop(
         # within the thread (regardless of which specific message is being replied to)
         resume_token: ResumeToken | None = None
         session_key = thread_id if thread_id else channel_id
+        author_id = getattr(message.author, "id", None)
+        if not isinstance(author_id, int):
+            author_id = None
         logger.debug(
             "session.lookup",
             guild_id=guild_id,
             session_key=session_key,
+            author_id=author_id,
             has_state_store=state_store is not None,
         )
 
@@ -1112,14 +1129,25 @@ async def run_main_loop(
                 source="reply" if reply_text else "message",
             )
 
-        if resume_token is None and state_store and guild_id:
-            token_str = await state_store.get_session(guild_id, session_key, engine_id)
+        if (
+            resume_token is None
+            and state_store
+            and guild_id
+            and cfg.session_mode == "chat"
+        ):
+            token_str = await state_store.get_session(
+                guild_id,
+                session_key,
+                engine_id,
+                author_id=author_id,
+            )
             if token_str:
                 resume_token = ResumeToken(engine=engine_id, value=token_str)
                 logger.info(
                     "session.restored",
                     guild_id=guild_id,
                     session_key=session_key,
+                    author_id=author_id,
                     engine_id=engine_id,
                     token_preview=token_str[:20] + "..."
                     if len(token_str) > 20
@@ -1130,6 +1158,7 @@ async def run_main_loop(
                     "session.not_found",
                     guild_id=guild_id,
                     session_key=session_key,
+                    author_id=author_id,
                     engine_id=engine_id,
                 )
 
@@ -1297,7 +1326,11 @@ async def run_main_loop(
         # current task's resume token is ready, then executed with full context.
         # Also queue any message that resumes an existing thread to avoid
         # overlapping runs for the same conversation.
-        session_meta: tuple[int, int | None] = (guild_id, channel_id)
+        session_meta: tuple[int, int | None] | tuple[int, int | None, int] = (
+            (guild_id, channel_id, author_id)
+            if author_id is not None
+            else (guild_id, channel_id)
+        )
         if resume_resolver is not None:
             reply_id = (
                 message.reference.message_id
@@ -1364,6 +1397,7 @@ async def run_main_loop(
                 resume_token=resume_token,
                 context=run_context,
                 engine_id=engine_id,
+                author_id=author_id,
                 thread_id=thread_id,
                 reply_ref=reply_ref,
                 guild_id=guild_id,
@@ -1472,11 +1506,12 @@ async def run_main_loop(
                 # Get resume token for the text channel
                 resume_token: ResumeToken | None = None
                 engine_id = cfg.runtime.default_engine or "claude"
-                token_str = await state_store.get_session(
-                    guild_id, text_channel_id, engine_id
-                )
-                if token_str:
-                    resume_token = ResumeToken(engine=engine_id, value=token_str)
+                if cfg.session_mode == "chat":
+                    token_str = await state_store.get_session(
+                        guild_id, text_channel_id, engine_id
+                    )
+                    if token_str:
+                        resume_token = ResumeToken(engine=engine_id, value=token_str)
 
                 # Use run_job to process the voice message through Claude
                 import time

@@ -108,6 +108,15 @@ class DiscordStateStore:
             return f"{guild_id}:{channel_id}"
         return str(channel_id)
 
+    @classmethod
+    def _session_key(
+        cls, guild_id: int | None, channel_id: int, author_id: int | None
+    ) -> str:
+        base = cls._channel_key(guild_id, channel_id)
+        if author_id is None:
+            return base
+        return f"{base}:{author_id}"
+
     async def get_context(
         self, guild_id: int | None, channel_id: int
     ) -> DiscordChannelContext | DiscordThreadContext | None:
@@ -179,12 +188,17 @@ class DiscordStateStore:
             self._save()
 
     async def get_session(
-        self, guild_id: int | None, channel_id: int, engine_id: str
+        self,
+        guild_id: int | None,
+        channel_id: int,
+        engine_id: str,
+        *,
+        author_id: int | None = None,
     ) -> str | None:
         """Get the resume token for a session."""
         async with self._lock:
             self._reload_if_needed()
-            key = self._channel_key(guild_id, channel_id)
+            key = self._session_key(guild_id, channel_id, author_id)
             channel_data = self._state.channels.get(key)
             if channel_data is None or channel_data.sessions is None:
                 return None
@@ -196,11 +210,13 @@ class DiscordStateStore:
         channel_id: int,
         engine_id: str,
         resume_token: str | None,
+        *,
+        author_id: int | None = None,
     ) -> None:
         """Set or clear the resume token for a session."""
         async with self._lock:
             self._reload_if_needed()
-            key = self._channel_key(guild_id, channel_id)
+            key = self._session_key(guild_id, channel_id, author_id)
             if key not in self._state.channels:
                 self._state.channels[key] = DiscordChannelStateData()
             if self._state.channels[key].sessions is None:
@@ -217,17 +233,39 @@ class DiscordStateStore:
             self._reload_if_needed()
             key = self._channel_key(guild_id, channel_id)
             self._state.channels.pop(key, None)
+            prefix = f"{key}:"
+            for entry in list(self._state.channels):
+                if entry.startswith(prefix):
+                    self._state.channels.pop(entry, None)
             self._save()
 
-    async def clear_sessions(self, guild_id: int | None, channel_id: int) -> None:
+    async def clear_sessions(
+        self,
+        guild_id: int | None,
+        channel_id: int,
+        *,
+        author_id: int | None = None,
+    ) -> None:
         """Clear all session tokens for a channel/thread."""
         async with self._lock:
             self._reload_if_needed()
+            if author_id is not None:
+                key = self._session_key(guild_id, channel_id, author_id)
+                self._state.channels.pop(key, None)
+                self._save()
+                return
+
             key = self._channel_key(guild_id, channel_id)
             channel_data = self._state.channels.get(key)
             if channel_data is not None:
                 channel_data.sessions = None
-                self._save()
+
+            prefix = f"{key}:"
+            for entry in list(self._state.channels):
+                if entry.startswith(prefix):
+                    self._state.channels.pop(entry, None)
+
+            self._save()
 
     # Guild-level methods
     async def get_startup_channel(self, guild_id: int) -> int | None:
