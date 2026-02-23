@@ -386,6 +386,26 @@ def _extract_engine_id_from_header(text: str | None) -> str | None:
     return engine_id or None
 
 
+def _strip_ctx_lines(text: str | None) -> str | None:
+    """Strip takopi context lines from bot messages.
+
+    Discord reply-to-continue needs the resume token in the referenced message, but
+    we don't want to couple branching to context-line parsing (which can raise if
+    config changes). Removing `ctx:` lines keeps resume extraction reliable.
+    """
+    if not text:
+        return None
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 1:
+            stripped = stripped[1:-1].strip()
+        if stripped.lower().startswith("ctx:"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip() or None
+
+
 async def run_main_loop(
     cfg: DiscordBridgeConfig,
     *,
@@ -1036,6 +1056,8 @@ async def run_main_loop(
         else:
             engine_id = cfg.runtime.default_engine or "claude"
 
+        reply_text: str | None = None
+
         # If the user is replying to one of our messages, prefer the engine from that
         # message header so reply chains continue the correct session/engine.
         if message.reference and message.reference.message_id:
@@ -1054,6 +1076,7 @@ async def run_main_loop(
                 and cfg.bot.user is not None
                 and ref_msg.author == cfg.bot.user
             ):
+                reply_text = _strip_ctx_lines(ref_msg.content)
                 inferred = _extract_engine_id_from_header(ref_msg.content)
                 if inferred and inferred in cfg.runtime.engine_ids:
                     engine_id = inferred
@@ -1063,7 +1086,33 @@ async def run_main_loop(
                         ref_message_id=ref_msg.id,
                     )
 
-        if state_store and guild_id:
+        # Prefer an explicit resume token (from message text or replied-to bot message)
+        # over any stored "latest token".
+        try:
+            resolved_msg = cfg.runtime.resolve_message(
+                text=prompt,
+                reply_text=reply_text,
+                ambient_context=run_context,
+                chat_id=session_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "resume.resolve_failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            resolved_msg = None
+
+        if resolved_msg is not None and resolved_msg.resume_token is not None:
+            resume_token = resolved_msg.resume_token
+            engine_id = resume_token.engine
+            logger.debug(
+                "resume.extracted_from_reply",
+                engine_id=engine_id,
+                source="reply" if reply_text else "message",
+            )
+
+        if resume_token is None and state_store and guild_id:
             token_str = await state_store.get_session(guild_id, session_key, engine_id)
             if token_str:
                 resume_token = ResumeToken(engine=engine_id, value=token_str)
