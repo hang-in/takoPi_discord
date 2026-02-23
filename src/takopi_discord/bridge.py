@@ -153,6 +153,7 @@ class DiscordBridgeConfig:
     message_overflow: Literal["trim", "split"] = "split"
     trigger_mode_default: Literal["all", "mentions"] = "all"
     files: DiscordFilesSettings = DiscordFilesSettings()
+    media_group_debounce_s: float = 0.75
 
 
 # Type alias for message listener callbacks

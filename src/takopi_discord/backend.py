@@ -128,6 +128,24 @@ class DiscordBackend(TransportBackend):
             Literal["all", "mentions"], trigger_mode_default_normalized
         )
 
+        media_group_debounce_s_raw = settings.get("media_group_debounce_s", 0.75)
+        try:
+            media_group_debounce_s = float(media_group_debounce_s_raw)
+        except (TypeError, ValueError):
+            logger.warning(
+                "config.invalid_media_group_debounce_s",
+                value=media_group_debounce_s_raw,
+                fallback=0.75,
+            )
+            media_group_debounce_s = 0.75
+        if media_group_debounce_s < 0:
+            logger.warning(
+                "config.invalid_media_group_debounce_s",
+                value=media_group_debounce_s_raw,
+                fallback=0.75,
+            )
+            media_group_debounce_s = 0.75
+
         # Parse files settings
         files_settings = settings.get("files", {})
         files_config = DiscordFilesSettings(
@@ -168,6 +186,7 @@ class DiscordBackend(TransportBackend):
             message_overflow=message_overflow,
             trigger_mode_default=trigger_mode_default,
             files=files_config,
+            media_group_debounce_s=media_group_debounce_s,
         )
 
         async def run_loop() -> None:
