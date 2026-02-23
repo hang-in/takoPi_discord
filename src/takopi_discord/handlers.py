@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 
 import discord
 
+from .allowlist import is_user_allowed
 from .overrides import (
     REASONING_LEVELS,
     is_valid_reasoning_level,
@@ -58,6 +59,7 @@ def register_slash_commands(
     prefs_store: DiscordPrefsStore,
     get_running_task: callable,
     cancel_task: callable,
+    allowed_user_ids: frozenset[int] | None = None,
     trigger_mode_default: Literal["all", "mentions"] = "all",
     runtime: TransportRuntime | None = None,
     files: DiscordFilesSettings | None = None,
@@ -65,6 +67,30 @@ def register_slash_commands(
 ) -> None:
     """Register slash commands with the bot."""
     pycord_bot = bot.bot
+
+    async def require_allowed_user(
+        ctx: discord.ApplicationContext, *, require_files: bool = False
+    ) -> bool:
+        user_id = getattr(getattr(ctx, "author", None), "id", None)
+        if not isinstance(user_id, int):
+            user_id = None
+
+        if not is_user_allowed(allowed_user_ids, user_id):
+            await ctx.respond("You are not allowed to use this bot.", ephemeral=True)
+            return False
+
+        if (
+            require_files
+            and files is not None
+            and not is_user_allowed(files.allowed_user_ids, user_id)
+        ):
+            await ctx.respond(
+                "You are not allowed to use file transfers.",
+                ephemeral=True,
+            )
+            return False
+
+        return True
 
     @pycord_bot.slash_command(
         name="status", description="Show current channel context and status"
@@ -77,6 +103,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         channel_id = ctx.channel_id
@@ -148,6 +176,8 @@ def register_slash_commands(
                 "This command can only be used in a server.", ephemeral=True
             )
             return
+        if not await require_allowed_user(ctx):
+            return
 
         channel_id = ctx.channel_id
         guild_id = ctx.guild.id
@@ -181,6 +211,8 @@ def register_slash_commands(
                 "This command can only be used in a server.", ephemeral=True
             )
             return
+        if not await require_allowed_user(ctx):
+            return
 
         channel_id = ctx.channel_id
         guild_id = ctx.guild.id
@@ -198,6 +230,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         channel_id = ctx.channel_id
@@ -222,6 +256,8 @@ def register_slash_commands(
                 "This command can only be used in a server.", ephemeral=True
             )
             return
+        if not await require_allowed_user(ctx):
+            return
 
         channel_id = ctx.channel_id
         guild_id = ctx.guild.id
@@ -243,6 +279,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         guild_id = ctx.guild.id
@@ -292,6 +330,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         if runtime is None:
@@ -359,6 +399,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         guild_id = ctx.guild.id
@@ -429,6 +471,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         guild_id = ctx.guild.id
@@ -516,6 +560,8 @@ def register_slash_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        if not await require_allowed_user(ctx):
             return
 
         guild_id = ctx.guild.id
@@ -650,6 +696,8 @@ def register_slash_commands(
                     "This command can only be used in a server.", ephemeral=True
                 )
                 return
+            if not await require_allowed_user(ctx, require_files=True):
+                return
 
             # File operations require admin
             if not await _require_admin(ctx):
@@ -751,7 +799,10 @@ def register_slash_commands(
     # Voice commands (only register if voice_manager is provided)
     if voice_manager is not None:
         _register_voice_commands(
-            bot, state_store=state_store, voice_manager=voice_manager
+            bot,
+            state_store=state_store,
+            voice_manager=voice_manager,
+            allowed_user_ids=allowed_user_ids,
         )
 
 
@@ -760,6 +811,7 @@ def _register_voice_commands(
     *,
     state_store: DiscordStateStore,
     voice_manager: VoiceManager,
+    allowed_user_ids: frozenset[int] | None,
 ) -> None:
     """Register voice-related slash commands."""
     from .types import DiscordThreadContext
@@ -776,6 +828,12 @@ def _register_voice_commands(
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
             )
+            return
+        user_id = getattr(getattr(ctx, "author", None), "id", None)
+        if not isinstance(user_id, int):
+            user_id = None
+        if not is_user_allowed(allowed_user_ids, user_id):
+            await ctx.respond("You are not allowed to use this bot.", ephemeral=True)
             return
 
         guild_id = ctx.guild.id
@@ -974,6 +1032,12 @@ async def _handle_engine_command(
 
     if ctx.guild is None:
         await ctx.respond("This command can only be used in a server.", ephemeral=True)
+        return
+    user_id = getattr(getattr(ctx, "author", None), "id", None)
+    if not isinstance(user_id, int):
+        user_id = None
+    if not is_user_allowed(cfg.allowed_user_ids, user_id):
+        await ctx.respond("You are not allowed to use this bot.", ephemeral=True)
         return
 
     # Defer quickly, then run in background so the interaction doesn't time out.

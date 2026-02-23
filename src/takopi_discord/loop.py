@@ -23,6 +23,7 @@ from takopi.scheduler import ThreadJob, ThreadScheduler
 from takopi.runners.run_options import EngineRunOptions, apply_run_options
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 
+from .allowlist import is_user_allowed
 from .bridge import CANCEL_BUTTON_ID, DiscordBridgeConfig, DiscordTransport
 from .commands import discover_command_ids, register_plugin_commands
 from .handlers import (
@@ -417,7 +418,10 @@ async def run_main_loop(
             openai_client = AsyncOpenAI(api_key=openai_api_key)
             whisper_model = os.environ.get("WHISPER_MODEL", WHISPER_MODEL)
             voice_manager = VoiceManager(
-                cfg.bot, openai_client, whisper_model=whisper_model
+                cfg.bot,
+                openai_client,
+                whisper_model=whisper_model,
+                allowed_user_ids=cfg.allowed_user_ids,
             )
             logger.info("voice.enabled", whisper_model=whisper_model)
         except ImportError as e:
@@ -455,6 +459,7 @@ async def run_main_loop(
         prefs_store=prefs_store,
         get_running_task=get_running_task,
         cancel_task=cancel_task,
+        allowed_user_ids=cfg.allowed_user_ids,
         trigger_mode_default=cfg.trigger_mode_default,
         runtime=cfg.runtime,
         files=cfg.files,
@@ -823,6 +828,18 @@ async def run_main_loop(
             )
             return
 
+        author_id = getattr(message.author, "id", None)
+        if not isinstance(author_id, int):
+            author_id = None
+        if not is_user_allowed(cfg.allowed_user_ids, author_id):
+            logger.debug(
+                "message.skipped",
+                reason="not in allowed_user_ids",
+                author_id=author_id,
+            )
+            return
+        files_allowed = is_user_allowed(cfg.files.allowed_user_ids, author_id)
+
         channel_id = message.channel.id
         guild_id = message.guild.id
         thread_id = None
@@ -930,7 +947,11 @@ async def run_main_loop(
 
         # Allow empty prompt if @branch was used or if there are attachments (for auto_put)
         has_attachments = bool(message.attachments)
-        if not prompt.strip() and not branch_override and not has_attachments:
+        if (
+            not prompt.strip()
+            and not branch_override
+            and (not has_attachments or not files_allowed)
+        ):
             return
 
         # Apply branch override to context
@@ -1113,59 +1134,57 @@ async def run_main_loop(
             media_buffer is not None
             and isinstance(message.channel, discord.Thread)
             and thread_id is not None
+            and author_id is not None
             and cfg.files.enabled
             and cfg.files.auto_put
+            and files_allowed
             and run_context is not None
             and run_context.project is not None
         ):
-            author_id = getattr(message.author, "id", None)
-            if isinstance(author_id, int):
-                if message.attachments and not prompt.strip():
-                    media_buffer.add(
-                        message,
-                        prompt="",
-                        guild_id=guild_id,
-                        channel_id=channel_id,
-                        thread_id=thread_id,
-                        job_channel_id=thread_id,
-                        engine_id=engine_id,
-                        resume_token=resume_token,
-                        context=run_context,
-                    )
-                    logger.debug(
-                        "media_group.buffered",
-                        thread_id=thread_id,
-                        author_id=author_id,
-                        message_id=message.id,
-                        attachment_count=len(message.attachments),
-                    )
-                    return
-                if (
-                    prompt.strip()
-                    and not message.attachments
-                    and media_buffer.has_pending(
-                        channel_id=thread_id, author_id=author_id
-                    )
-                ):
-                    media_buffer.add(
-                        message,
-                        prompt=prompt,
-                        guild_id=guild_id,
-                        channel_id=channel_id,
-                        thread_id=thread_id,
-                        job_channel_id=thread_id,
-                        engine_id=engine_id,
-                        resume_token=resume_token,
-                        context=run_context,
-                    )
-                    logger.debug(
-                        "media_group.prompt_attached",
-                        thread_id=thread_id,
-                        author_id=author_id,
-                        message_id=message.id,
-                        prompt_length=len(prompt),
-                    )
-                    return
+            if message.attachments and not prompt.strip():
+                media_buffer.add(
+                    message,
+                    prompt="",
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
+                    job_channel_id=thread_id,
+                    engine_id=engine_id,
+                    resume_token=resume_token,
+                    context=run_context,
+                )
+                logger.debug(
+                    "media_group.buffered",
+                    thread_id=thread_id,
+                    author_id=author_id,
+                    message_id=message.id,
+                    attachment_count=len(message.attachments),
+                )
+                return
+            if (
+                prompt.strip()
+                and not message.attachments
+                and media_buffer.has_pending(channel_id=thread_id, author_id=author_id)
+            ):
+                media_buffer.add(
+                    message,
+                    prompt=prompt,
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
+                    job_channel_id=thread_id,
+                    engine_id=engine_id,
+                    resume_token=resume_token,
+                    context=run_context,
+                )
+                logger.debug(
+                    "media_group.prompt_attached",
+                    thread_id=thread_id,
+                    author_id=author_id,
+                    message_id=message.id,
+                    prompt_length=len(prompt),
+                )
+                return
 
         # Handle auto_put for file attachments
         logger.debug(
@@ -1174,7 +1193,12 @@ async def run_main_loop(
             auto_put=cfg.files.auto_put,
             attachment_count=len(message.attachments),
         )
-        if cfg.files.enabled and cfg.files.auto_put and message.attachments:
+        if (
+            cfg.files.enabled
+            and cfg.files.auto_put
+            and message.attachments
+            and files_allowed
+        ):
             from takopi.config import ConfigError
 
             from .file_transfer import format_bytes, save_attachment
@@ -1334,6 +1358,12 @@ async def run_main_loop(
             if interaction.data:
                 custom_id = interaction.data.get("custom_id")
                 if custom_id == CANCEL_BUTTON_ID:
+                    user_id = getattr(getattr(interaction, "user", None), "id", None)
+                    if not isinstance(user_id, int):
+                        user_id = None
+                    if not is_user_allowed(cfg.allowed_user_ids, user_id):
+                        await interaction.response.defer()
+                        return
                     # Get the channel where the cancel was clicked
                     channel_id = interaction.channel_id
                     if channel_id is not None:

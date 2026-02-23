@@ -34,6 +34,8 @@ async def test_engine_command_restores_and_saves_session_in_thread(
     ctx.guild.id = 123
     ctx.channel_id = 555  # thread id
     ctx.channel = DummyThread(parent_id=999)  # parent channel id
+    ctx.author = MagicMock()
+    ctx.author.id = 4242
     ctx.defer = AsyncMock()
     ctx.followup = MagicMock()
     ctx.followup.send = AsyncMock()
@@ -51,6 +53,7 @@ async def test_engine_command_restores_and_saves_session_in_thread(
     cfg.exec_cfg = MagicMock()
     cfg.runtime = MagicMock()
     cfg.show_resume_line = True
+    cfg.allowed_user_ids = None
     cfg.bot.send_message = AsyncMock(return_value=starter_ref)
 
     run_engine = AsyncMock()
