@@ -33,7 +33,11 @@ from .handlers import (
     register_slash_commands,
     should_process_message,
 )
-from .overrides import resolve_overrides, resolve_trigger_mode
+from .overrides import (
+    resolve_effective_default_engine,
+    resolve_overrides,
+    resolve_trigger_mode,
+)
 from .prefs import DiscordPrefsStore
 from .render import prepare_discord
 from .state import DiscordStateStore
@@ -1028,13 +1032,29 @@ async def run_main_loop(
             has_state_store=state_store is not None,
         )
 
-        # Get engine_id from context (thread or channel), fallback to config
-        if thread_context:
-            engine_id = thread_context.default_engine
-        elif channel_context:
-            engine_id = channel_context.default_engine
-        else:
+        # Resolve engine via preferences + bound context defaults.
+        engine_id, engine_source = await resolve_effective_default_engine(
+            prefs_store,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            bound_thread_default=thread_context.default_engine
+            if thread_context
+            else None,
+            bound_channel_default=channel_context.default_engine
+            if channel_context
+            else None,
+            config_default=cfg.runtime.default_engine,
+        )
+        if engine_id is None:
             engine_id = cfg.runtime.default_engine or "claude"
+        logger.debug(
+            "engine.resolved",
+            engine_id=engine_id,
+            source=engine_source,
+            channel_id=channel_id,
+            thread_id=thread_id,
+        )
 
         # If the user is replying to one of our messages, prefer the engine from that
         # message header so reply chains continue the correct session/engine.
