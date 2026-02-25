@@ -54,7 +54,22 @@ message_overflow = "split"       # "split" (default) or "trim" for long messages
 session_mode = "stateless"       # "stateless" (default) or "chat"
 show_resume_line = true          # Show resume token in messages (default: true)
 trigger_mode_default = "all"     # "all" (default) or "mentions" for inherited trigger mode
-upload_dir = "~/uploads"         # Optional: enable /file commands with this root dir
+# allowed_user_ids = [123456789012345678]  # Optional: restrict bot usage (Discord user IDs)
+media_group_debounce_s = 0.75     # Buffer bursts of attachments (seconds)
+
+[transports.discord.files]
+enabled = false                  # Enable /file + attachment auto-upload
+# auto_put = true                # Auto-save attachments into `uploads_dir`
+# auto_put_mode = "upload"       # "upload" (default) or "prompt"
+uploads_dir = "incoming"         # Relative path in the repo
+# max_upload_bytes = 20971520    # 20MB
+# deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
+# allowed_user_ids = [123456789012345678]  # Optional: restrict file transfers separately
+
+[transports.discord.voice_messages]
+enabled = false                  # Transcribe audio attachments with no text prompt
+# max_bytes = 10485760           # 10MB
+whisper_model = "base"
 ```
 
 State is automatically saved to `~/.takopi/discord_state.json`. Chat preferences
@@ -86,7 +101,7 @@ State is automatically saved to `~/.takopi/discord_state.json`. Chat preferences
 - `/bind <project> [worktrees_dir] [default_engine] [worktree_base]` - Bind channel to a project
 - `/unbind` - Remove project binding
 - `/status` - Show current channel/thread context and status
-- `/ctx [show|clear]` - Show or clear context binding
+- `/ctx [show|set|clear]` - Show or modify context binding
 - `/cancel` - Cancel running task
 - `/new` - Clear conversation session (start fresh)
 
@@ -103,7 +118,7 @@ These commands allow you to target a specific engine regardless of the channel's
 
 ### Agent & Model Commands
 
-- `/agent` - Show available agents and current defaults
+- `/agent [show|set|clear] [engine]` - Show or override the default agent for this channel/thread
 - `/model [engine] [model]` - Show or set model override for an engine
 - `/reasoning [engine] [level]` - Show or set reasoning level (minimal/low/medium/high/xhigh)
 - `/trigger [all|mentions|clear]` - Set when bot responds (all messages or only @mentions)
@@ -113,13 +128,15 @@ These commands allow you to target a specific engine regardless of the channel's
 - `/file get <path>` - Download a file or directory (zipped) from the server
 - `/file put <path>` - Upload a file (attach file, then reply with this command)
 
-Requires `upload_dir` to be configured. Files in `.git`, `.env`, and credentials are blocked.
+Enable with `[transports.discord.files] enabled = true`. Files in `.git`, `.env`, and credentials are blocked.
 
 ### Voice
 
 - `/voice` or `/vc` - Create a voice channel for the current thread/channel
 
 The voice channel is bound to the project context and auto-deletes when empty. Uses local Whisper for speech-to-text transcription.
+
+To transcribe voice message attachments in text chat, enable `[transports.discord.voice_messages]` (requires `ffmpeg`).
 
 ### Plugins
 
