@@ -24,6 +24,7 @@ __all__ = [
     "DiscordFilesSettings",
     "DiscordPresenter",
     "DiscordTransport",
+    "DiscordVoiceMessageSettings",
 ]
 
 CANCEL_BUTTON_ID = "takopi-discord:cancel"
@@ -137,6 +138,16 @@ class DiscordFilesSettings:
         "**/*.pem",
         "**/.ssh/**",
     )
+    allowed_user_ids: frozenset[int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DiscordVoiceMessageSettings:
+    """Settings for voice message attachment transcription in text chat."""
+
+    enabled: bool = False
+    max_bytes: int = 10 * 1024 * 1024  # 10MB
+    whisper_model: str = "base"
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,11 +159,13 @@ class DiscordBridgeConfig:
     guild_id: int | None
     startup_msg: str
     exec_cfg: ExecBridgeConfig
+    allowed_user_ids: frozenset[int] | None = None
     session_mode: Literal["stateless", "chat"] = "stateless"
     show_resume_line: bool = True
     message_overflow: Literal["trim", "split"] = "split"
     trigger_mode_default: Literal["all", "mentions"] = "all"
     files: DiscordFilesSettings = DiscordFilesSettings()
+    voice_messages: DiscordVoiceMessageSettings = DiscordVoiceMessageSettings()
     media_group_debounce_s: float = 0.75
 
 

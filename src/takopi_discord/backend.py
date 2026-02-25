@@ -19,10 +19,12 @@ from .bridge import (
     DiscordFilesSettings,
     DiscordPresenter,
     DiscordTransport,
+    DiscordVoiceMessageSettings,
 )
 from .client import DiscordBotClient
 from .loop import run_main_loop
 from .onboarding import check_setup, interactive_setup
+from .allowlist import normalize_user_id_set
 
 logger = get_logger(__name__)
 
@@ -128,6 +130,14 @@ class DiscordBackend(TransportBackend):
             Literal["all", "mentions"], trigger_mode_default_normalized
         )
 
+        allowed_user_ids_raw = settings.get("allowed_user_ids")
+        allowed_user_ids = normalize_user_id_set(allowed_user_ids_raw)
+        if allowed_user_ids_raw and allowed_user_ids is None:
+            logger.warning(
+                "config.invalid_allowed_user_ids",
+                value=allowed_user_ids_raw,
+            )
+
         media_group_debounce_s_raw = settings.get("media_group_debounce_s", 0.75)
         try:
             media_group_debounce_s = float(media_group_debounce_s_raw)
@@ -148,6 +158,13 @@ class DiscordBackend(TransportBackend):
 
         # Parse files settings
         files_settings = settings.get("files", {})
+        files_allowed_user_ids_raw = files_settings.get("allowed_user_ids")
+        files_allowed_user_ids = normalize_user_id_set(files_allowed_user_ids_raw)
+        if files_allowed_user_ids_raw and files_allowed_user_ids is None:
+            logger.warning(
+                "config.invalid_files_allowed_user_ids",
+                value=files_allowed_user_ids_raw,
+            )
         files_config = DiscordFilesSettings(
             enabled=files_settings.get("enabled", False),
             auto_put=files_settings.get("auto_put", True),
@@ -160,6 +177,15 @@ class DiscordBackend(TransportBackend):
                     [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"],
                 )
             ),
+            allowed_user_ids=files_allowed_user_ids,
+        )
+
+        # Parse voice message transcription settings
+        voice_settings = settings.get("voice_messages", {})
+        voice_messages_config = DiscordVoiceMessageSettings(
+            enabled=voice_settings.get("enabled", False),
+            max_bytes=voice_settings.get("max_bytes", 10 * 1024 * 1024),
+            whisper_model=voice_settings.get("whisper_model", "base"),
         )
 
         startup_msg = _build_startup_message(
@@ -179,6 +205,7 @@ class DiscordBackend(TransportBackend):
             bot=bot,
             runtime=runtime,
             guild_id=guild_id,
+            allowed_user_ids=allowed_user_ids,
             startup_msg=startup_msg,
             exec_cfg=exec_cfg,
             session_mode=session_mode,
@@ -187,6 +214,7 @@ class DiscordBackend(TransportBackend):
             trigger_mode_default=trigger_mode_default,
             files=files_config,
             media_group_debounce_s=media_group_debounce_s,
+            voice_messages=voice_messages_config,
         )
 
         async def run_loop() -> None:

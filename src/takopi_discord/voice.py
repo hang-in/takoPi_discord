@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 import discord
 from pywhispercpp.model import Model as WhisperModel
 
+from .allowlist import is_user_allowed
+
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
@@ -169,6 +171,7 @@ class VoiceManager:
         tts_voice: str = "nova",
         tts_model: str = "tts-1",
         whisper_model: str = WHISPER_MODEL,
+        allowed_user_ids: frozenset[int] | None = None,
     ) -> None:
         self._bot = bot
         self._openai = openai_client
@@ -176,6 +179,7 @@ class VoiceManager:
         self._tts_model = tts_model
         self._whisper_model_name = whisper_model
         self._whisper_model: WhisperModel | None = None  # Lazy init
+        self._allowed_user_ids = allowed_user_ids
         self._sessions: dict[int, VoiceSession] = {}  # guild_id -> session
         self._audio_buffers: dict[
             tuple[int, int], AudioBuffer
@@ -215,6 +219,8 @@ class VoiceManager:
 
     def _receive_audio(self, guild_id: int, user_id: int, data: bytes) -> None:
         """Receive audio data from a user (called from sink)."""
+        if not is_user_allowed(self._allowed_user_ids, user_id):
+            return
         # Don't buffer audio while bot is responding - discard it
         if self._is_responding.get(guild_id, False):
             return
