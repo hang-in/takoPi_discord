@@ -1810,11 +1810,14 @@ async def run_main_loop(
                 running_tasks=running_tasks,
                 enqueue_resume=scheduler.enqueue_resume,
             )
-            media_buffer = MediaGroupBuffer(
-                task_group=tg,
-                debounce_s=0.75,
-                dispatch=dispatch_media_group,
-            )
+            if cfg.media_group_debounce_s > 0:
+                media_buffer = MediaGroupBuffer(
+                    task_group=tg,
+                    debounce_s=cfg.media_group_debounce_s,
+                    dispatch=dispatch_media_group,
+                )
+            else:
+                media_buffer = None
 
             # Start the bot
             await cfg.bot.start()
