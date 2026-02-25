@@ -11,7 +11,7 @@ from .allowlist import is_user_allowed
 from .overrides import (
     REASONING_LEVELS,
     is_valid_reasoning_level,
-    resolve_default_engine,
+    resolve_effective_default_engine,
     resolve_overrides,
     resolve_trigger_mode,
     supports_reasoning,
@@ -324,11 +324,20 @@ def register_slash_commands(
             )
         await ctx.respond(msg, ephemeral=True)
 
-    @pycord_bot.slash_command(
-        name="agent", description="Show available agents and current defaults"
-    )
-    async def agent_command(ctx: discord.ApplicationContext) -> None:
-        """Show available agents/engines and current configuration."""
+    @pycord_bot.slash_command(name="agent", description="Show or manage default agent")
+    async def agent_command(
+        ctx: discord.ApplicationContext,
+        action: str | None = discord.Option(
+            default=None,
+            description="Action to perform (show, set, clear)",
+            choices=["show", "set", "clear"],
+        ),
+        engine: str | None = discord.Option(
+            default=None,
+            description="Engine to set as default (for action=set)",
+        ),
+    ) -> None:
+        """Show or manage default engine selection."""
         if ctx.guild is None:
             await ctx.respond(
                 "This command can only be used in a server.", ephemeral=True
@@ -348,16 +357,65 @@ def register_slash_commands(
             thread_id = ctx.channel_id
             channel_id = ctx.channel.parent_id or ctx.channel_id
 
+        target_id = thread_id if thread_id is not None else channel_id
+        scope = "thread" if thread_id is not None else "channel"
+
+        normalized_action = (action or "show").strip().lower()
+        if normalized_action in {"set", "clear"}:
+            if not await _require_admin(ctx):
+                return
+            if normalized_action == "clear":
+                await prefs_store.set_default_engine(guild_id, target_id, None)
+                await ctx.respond(
+                    f"Default agent override cleared for this {scope}.",
+                    ephemeral=True,
+                )
+                return
+            if engine is None:
+                await ctx.respond(
+                    "Missing engine. Example: `/agent action:set engine:codex`.",
+                    ephemeral=True,
+                )
+                return
+            if engine not in runtime.engine_ids:
+                await ctx.respond(
+                    f"Unknown engine `{engine}`. Available: {', '.join(runtime.engine_ids)}",
+                    ephemeral=True,
+                )
+                return
+            await prefs_store.set_default_engine(guild_id, target_id, engine)
+            await ctx.respond(
+                f"Default agent set to `{engine}` for this {scope}.",
+                ephemeral=True,
+            )
+            return
+
         # Get available engines
         engines = list(runtime.engine_ids) if runtime.engine_ids else []
         if not engines:
             await ctx.respond("No engines configured.", ephemeral=True)
             return
 
-        # Resolve default engine
-        config_default = runtime.default_engine
-        default_engine, source = await resolve_default_engine(
-            prefs_store, guild_id, channel_id, thread_id, config_default
+        from .types import DiscordChannelContext, DiscordThreadContext
+
+        bound_thread_default = None
+        if thread_id is not None:
+            ctx_data = await state_store.get_context(guild_id, thread_id)
+            if isinstance(ctx_data, DiscordThreadContext):
+                bound_thread_default = ctx_data.default_engine
+        bound_channel_default = None
+        ctx_data = await state_store.get_context(guild_id, channel_id)
+        if isinstance(ctx_data, DiscordChannelContext):
+            bound_channel_default = ctx_data.default_engine
+
+        default_engine, source = await resolve_effective_default_engine(
+            prefs_store,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            bound_thread_default=bound_thread_default,
+            bound_channel_default=bound_channel_default,
+            config_default=runtime.default_engine,
         )
 
         lines = ["**Available Agents**"]
@@ -366,7 +424,14 @@ def register_slash_commands(
             lines.append(f"- `{engine}`{marker}")
 
         if default_engine and source:
-            lines.append(f"\n_Default from: {source}_")
+            pretty_source = {
+                "thread_override": "thread override",
+                "channel_override": "channel override",
+                "thread_context": "thread context",
+                "channel_context": "channel context",
+                "config": "config default",
+            }.get(source, source)
+            lines.append(f"\n_Default: `{default_engine}` ({pretty_source})_")
 
         # Show any overrides
         overrides = await resolve_overrides(
