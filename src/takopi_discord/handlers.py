@@ -626,10 +626,12 @@ def register_slash_commands(
         from .file_transfer import (
             MAX_FILE_SIZE,
             ZipTooLargeError,
+            default_upload_name,
             deny_reason,
             format_bytes,
             normalize_relative_path,
             resolve_path_within_root,
+            save_attachment_to_path,
             zip_directory,
         )
         from .types import DiscordChannelContext, DiscordThreadContext
@@ -691,6 +693,10 @@ def register_slash_commands(
             ),
             path: str = discord.Option(
                 description="File path relative to project directory",
+            ),
+            force: bool = discord.Option(
+                default=False,
+                description="Overwrite existing files (put only)",
             ),
         ) -> None:
             """Handle file transfers."""
@@ -791,13 +797,85 @@ def register_slash_commands(
                     await ctx.followup.send(f"Error reading file: {e}", ephemeral=True)
 
             elif action == "put":
-                # Upload requires an attachment - show instructions
-                await ctx.respond(
-                    "To upload a file, send it as an attachment with your message.\n"
-                    f"Files will be automatically saved to `{files.uploads_dir}/` "
-                    "when `auto_put` is enabled.",
-                    ephemeral=True,
-                )
+                raw_path = path.strip()
+                path_is_dir_hint = raw_path.endswith(("/", "\\"))
+                rel_path = normalize_relative_path(raw_path)
+                if rel_path is None:
+                    await ctx.respond(
+                        "Invalid path. Must be relative, no `..` or `.git`.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Gather attachments from the command message, or from the replied-to message.
+                attachments: list[discord.Attachment] = []
+                ref_id: int | None = None
+                if ctx.message is not None:
+                    attachments = list(ctx.message.attachments or [])
+                    if ctx.message.reference and ctx.message.reference.message_id:
+                        ref_id = ctx.message.reference.message_id
+
+                if not attachments and ref_id is not None:
+                    try:
+                        ref_msg = await ctx.channel.fetch_message(ref_id)
+                    except (discord.NotFound, discord.HTTPException):
+                        ref_msg = None
+                    if ref_msg is not None:
+                        attachments = list(ref_msg.attachments or [])
+
+                if not attachments:
+                    await ctx.respond(
+                        "Attach file(s) to this command, or reply to a message with attachments and run `/file put`.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Decide whether `path` is a directory target.
+                dir_mode = len(attachments) > 1
+                base_target = resolve_path_within_root(project_root, rel_path)
+                if base_target is None:
+                    await ctx.respond("Path escapes project directory.", ephemeral=True)
+                    return
+                if dir_mode:
+                    if base_target.exists() and base_target.is_file():
+                        await ctx.respond(
+                            "For multiple files, `path` must be a directory.",
+                            ephemeral=True,
+                        )
+                        return
+                else:
+                    dir_mode = path_is_dir_hint or (
+                        base_target.exists() and base_target.is_dir()
+                    )
+
+                await ctx.defer(ephemeral=True)
+
+                results: list[str] = []
+                for attachment in attachments:
+                    dest_rel = rel_path
+                    if dir_mode:
+                        dest_rel = rel_path / default_upload_name(attachment.filename)
+
+                    result = await save_attachment_to_path(
+                        attachment,
+                        project_root,
+                        dest_rel,
+                        deny_globs,
+                        max_bytes=files.max_upload_bytes,
+                        force=force,
+                    )
+                    if result.error is not None:
+                        results.append(f"❌ `{attachment.filename}`: {result.error}")
+                        continue
+                    if result.rel_path is None or result.size is None:
+                        results.append(f"❌ `{attachment.filename}`: failed to save")
+                        continue
+                    overwritten = " (overwritten)" if result.overwritten else ""
+                    results.append(
+                        f"✅ `{result.rel_path.as_posix()}` ({format_bytes(result.size)}){overwritten}"
+                    )
+
+                await ctx.followup.send("\n".join(results), ephemeral=True)
 
     # Voice commands (only register if voice_manager is provided)
     if voice_manager is not None:
