@@ -53,6 +53,7 @@ async def test_engine_command_restores_and_saves_session_in_thread(
     cfg.exec_cfg = MagicMock()
     cfg.runtime = MagicMock()
     cfg.show_resume_line = True
+    cfg.allowed_user_ids = None
     cfg.session_mode = "chat"
     cfg.bot.send_message = AsyncMock(return_value=starter_ref)
 
