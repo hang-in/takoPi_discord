@@ -34,6 +34,8 @@ async def test_engine_command_restores_and_saves_session_in_thread(
     ctx.guild.id = 123
     ctx.channel_id = 555  # thread id
     ctx.channel = DummyThread(parent_id=999)  # parent channel id
+    ctx.author = MagicMock()
+    ctx.author.id = 4242
     ctx.defer = AsyncMock()
     ctx.followup = MagicMock()
     ctx.followup.send = AsyncMock()
@@ -51,6 +53,7 @@ async def test_engine_command_restores_and_saves_session_in_thread(
     cfg.exec_cfg = MagicMock()
     cfg.runtime = MagicMock()
     cfg.show_resume_line = True
+    cfg.session_mode = "chat"
     cfg.bot.send_message = AsyncMock(return_value=starter_ref)
 
     run_engine = AsyncMock()
@@ -75,7 +78,9 @@ async def test_engine_command_restores_and_saves_session_in_thread(
         # Let the background task run
         await asyncio.sleep(0)
 
-        state_store.get_session.assert_awaited_once_with(123, 555, "codex")
+        state_store.get_session.assert_awaited_once_with(
+            123, 555, "codex", author_id=4242
+        )
         run_engine.assert_awaited_once()
 
         kwargs = run_engine.call_args.kwargs
@@ -89,4 +94,6 @@ async def test_engine_command_restores_and_saves_session_in_thread(
         await on_thread_known(
             ResumeToken(engine="codex", value="tok456"), anyio.Event()
         )
-        state_store.set_session.assert_awaited_with(123, 555, "codex", "tok456")
+        state_store.set_session.assert_awaited_with(
+            123, 555, "codex", "tok456", author_id=4242
+        )
