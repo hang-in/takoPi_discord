@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-25
+
+### Added
+- Per-user session isolation when `session_mode = "chat"`
+- Resume token extraction from replies to bot progress messages
+- Discord allowlist gating via `transports.discord.allowed_user_ids`
+- `/ctx set` for rebinding channel/thread context
+- `/agent set|clear` for per-channel/thread default agent overrides
+- `/file put` for uploading attachments to explicit paths
+- Voice message attachment transcription via `transports.discord.voice_messages`
+- Configurable media group debounce via `transports.discord.media_group_debounce_s`
+
+### Changed
+- File transfer configuration is now under `transports.discord.files` (enable with `files.enabled = true`)
+
 ## [0.4.1] - 2026-02-23
 
 ### Added
