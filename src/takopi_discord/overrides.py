@@ -152,6 +152,54 @@ async def resolve_default_engine(
     return None, None
 
 
+async def resolve_effective_default_engine(
+    prefs_store: DiscordPrefsStore,
+    *,
+    guild_id: int,
+    channel_id: int,
+    thread_id: int | None,
+    bound_thread_default: str | None,
+    bound_channel_default: str | None,
+    config_default: str | None,
+) -> tuple[str | None, str | None]:
+    """Resolve default engine including bound context defaults.
+
+    Resolution order (first match wins):
+    1. Thread override (prefs) (if in a thread)
+    2. Channel override (prefs)
+    3. Bound thread context default
+    4. Bound channel context default
+    5. Config default
+
+    Returns: (engine_id, source) where source is one of:
+      - "thread_override"
+      - "channel_override"
+      - "thread_context"
+      - "channel_context"
+      - "config"
+      - None
+    """
+    if thread_id is not None:
+        thread_engine = await prefs_store.get_default_engine(guild_id, thread_id)
+        if thread_engine is not None:
+            return thread_engine, "thread_override"
+
+    channel_engine = await prefs_store.get_default_engine(guild_id, channel_id)
+    if channel_engine is not None:
+        return channel_engine, "channel_override"
+
+    if bound_thread_default is not None:
+        return bound_thread_default, "thread_context"
+
+    if bound_channel_default is not None:
+        return bound_channel_default, "channel_context"
+
+    if config_default is not None:
+        return config_default, "config"
+
+    return None, None
+
+
 def supports_reasoning(engine_id: str) -> bool:
     """Check if an engine supports reasoning overrides."""
     return engine_id in REASONING_ENGINES

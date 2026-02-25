@@ -23,6 +23,7 @@ from takopi.scheduler import ThreadJob, ThreadScheduler
 from takopi.runners.run_options import EngineRunOptions, apply_run_options
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 
+from .allowlist import is_user_allowed
 from .bridge import CANCEL_BUTTON_ID, DiscordBridgeConfig, DiscordTransport
 from .commands import discover_command_ids, register_plugin_commands
 from .handlers import (
@@ -33,7 +34,11 @@ from .handlers import (
     register_slash_commands,
     should_process_message,
 )
-from .overrides import resolve_overrides, resolve_trigger_mode
+from .overrides import (
+    resolve_effective_default_engine,
+    resolve_overrides,
+    resolve_trigger_mode,
+)
 from .prefs import DiscordPrefsStore
 from .render import prepare_discord
 from .state import DiscordStateStore
@@ -72,11 +77,14 @@ async def _save_session_token(
     state_store: DiscordStateStore | None,
     guild_id: int | None,
     session_key: int,
+    author_id: int | None,
     token: ResumeToken,
 ) -> None:
     if state_store is None or guild_id is None:
         return
-    await state_store.set_session(guild_id, session_key, token.engine, token.value)
+    await state_store.set_session(
+        guild_id, session_key, token.engine, token.value, author_id=author_id
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +298,7 @@ class _MediaGroupState:
     items: list[_MediaItem] = field(default_factory=list)
     guild_id: int | None = None
     channel_id: int | None = None
+    author_id: int | None = None
     thread_id: int | None = None
     job_channel_id: int | None = None
     engine_id: str | None = None
@@ -341,6 +350,7 @@ class MediaGroupBuffer:
         state.token += 1
         state.guild_id = guild_id
         state.channel_id = channel_id
+        state.author_id = author_id
         state.thread_id = thread_id
         state.job_channel_id = job_channel_id
         state.engine_id = engine_id
@@ -386,6 +396,26 @@ def _extract_engine_id_from_header(text: str | None) -> str | None:
     return engine_id or None
 
 
+def _strip_ctx_lines(text: str | None) -> str | None:
+    """Strip takopi context lines from bot messages.
+
+    Discord reply-to-continue needs the resume token in the referenced message, but
+    we don't want to couple branching to context-line parsing (which can raise if
+    config changes). Removing `ctx:` lines keeps resume extraction reliable.
+    """
+    if not text:
+        return None
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("`") and stripped.endswith("`") and len(stripped) > 1:
+            stripped = stripped[1:-1].strip()
+        if stripped.lower().startswith("ctx:"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip() or None
+
+
 async def run_main_loop(
     cfg: DiscordBridgeConfig,
     *,
@@ -417,7 +447,10 @@ async def run_main_loop(
             openai_client = AsyncOpenAI(api_key=openai_api_key)
             whisper_model = os.environ.get("WHISPER_MODEL", WHISPER_MODEL)
             voice_manager = VoiceManager(
-                cfg.bot, openai_client, whisper_model=whisper_model
+                cfg.bot,
+                openai_client,
+                whisper_model=whisper_model,
+                allowed_user_ids=cfg.allowed_user_ids,
             )
             logger.info("voice.enabled", whisper_model=whisper_model)
         except ImportError as e:
@@ -455,6 +488,7 @@ async def run_main_loop(
         prefs_store=prefs_store,
         get_running_task=get_running_task,
         cancel_task=cancel_task,
+        allowed_user_ids=cfg.allowed_user_ids,
         trigger_mode_default=cfg.trigger_mode_default,
         runtime=cfg.runtime,
         files=cfg.files,
@@ -504,6 +538,7 @@ async def run_main_loop(
         resume_token: ResumeToken | None,
         context: RunContext | None,
         engine_id: str | None,
+        author_id: int | None = None,
         thread_id: int | None = None,
         reply_ref: MessageRef | None = None,
         guild_id: int | None = None,
@@ -596,6 +631,7 @@ async def run_main_loop(
                         state_store=state_store,
                         guild_id=guild_id,
                         session_key=save_key,
+                        author_id=author_id,
                         token=new_token,
                     )
                     if state_store and guild_id:
@@ -603,6 +639,7 @@ async def run_main_loop(
                             "session.saved",
                             guild_id=guild_id,
                             session_key=save_key,
+                            author_id=author_id,
                             engine_id=new_token.engine,
                         )
                     else:
@@ -638,9 +675,12 @@ async def run_main_loop(
     async def run_thread_job(job: ThreadJob) -> None:
         guild_id: int | None = None
         parent_channel_id: int | None = None
+        author_id: int | None = None
         if job.session_key is not None:
             guild_id = job.session_key[0]
             parent_channel_id = job.session_key[1]
+            if len(job.session_key) >= 3 and isinstance(job.session_key[2], int):
+                author_id = job.session_key[2]
 
         engine_id = job.resume_token.engine
         run_options: EngineRunOptions | None = None
@@ -665,6 +705,7 @@ async def run_main_loop(
             resume_token=job.resume_token,
             context=job.context,
             engine_id=engine_id,
+            author_id=author_id,
             thread_id=cast(int | None, job.thread_id),
             reply_ref=None,
             guild_id=guild_id,
@@ -786,6 +827,7 @@ async def run_main_loop(
             resume_token=state.resume_token,
             context=state.context,
             engine_id=engine_id,
+            author_id=state.author_id,
             thread_id=state.thread_id,
             reply_ref=None,
             guild_id=state.guild_id,
@@ -822,6 +864,18 @@ async def run_main_loop(
                 "message.skipped", reason="should_process_message returned False"
             )
             return
+
+        author_id = getattr(message.author, "id", None)
+        if not isinstance(author_id, int):
+            author_id = None
+        if not is_user_allowed(cfg.allowed_user_ids, author_id):
+            logger.debug(
+                "message.skipped",
+                reason="not in allowed_user_ids",
+                author_id=author_id,
+            )
+            return
+        files_allowed = is_user_allowed(cfg.files.allowed_user_ids, author_id)
 
         channel_id = message.channel.id
         guild_id = message.guild.id
@@ -930,7 +984,11 @@ async def run_main_loop(
 
         # Allow empty prompt if @branch was used or if there are attachments (for auto_put)
         has_attachments = bool(message.attachments)
-        if not prompt.strip() and not branch_override and not has_attachments:
+        if (
+            not prompt.strip()
+            and not branch_override
+            and (not has_attachments or not files_allowed)
+        ):
             return
 
         # Apply branch override to context
@@ -1021,20 +1079,42 @@ async def run_main_loop(
         # within the thread (regardless of which specific message is being replied to)
         resume_token: ResumeToken | None = None
         session_key = thread_id if thread_id else channel_id
+        author_id = getattr(message.author, "id", None)
+        if not isinstance(author_id, int):
+            author_id = None
         logger.debug(
             "session.lookup",
             guild_id=guild_id,
             session_key=session_key,
+            author_id=author_id,
             has_state_store=state_store is not None,
         )
 
-        # Get engine_id from context (thread or channel), fallback to config
-        if thread_context:
-            engine_id = thread_context.default_engine
-        elif channel_context:
-            engine_id = channel_context.default_engine
-        else:
+        # Resolve engine via preferences + bound context defaults.
+        engine_id, engine_source = await resolve_effective_default_engine(
+            prefs_store,
+            guild_id=guild_id,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            bound_thread_default=thread_context.default_engine
+            if thread_context
+            else None,
+            bound_channel_default=channel_context.default_engine
+            if channel_context
+            else None,
+            config_default=cfg.runtime.default_engine,
+        )
+        if engine_id is None:
             engine_id = cfg.runtime.default_engine or "claude"
+        logger.debug(
+            "engine.resolved",
+            engine_id=engine_id,
+            source=engine_source,
+            channel_id=channel_id,
+            thread_id=thread_id,
+        )
+
+        reply_text: str | None = None
 
         # If the user is replying to one of our messages, prefer the engine from that
         # message header so reply chains continue the correct session/engine.
@@ -1054,6 +1134,7 @@ async def run_main_loop(
                 and cfg.bot.user is not None
                 and ref_msg.author == cfg.bot.user
             ):
+                reply_text = _strip_ctx_lines(ref_msg.content)
                 inferred = _extract_engine_id_from_header(ref_msg.content)
                 if inferred and inferred in cfg.runtime.engine_ids:
                     engine_id = inferred
@@ -1063,14 +1144,51 @@ async def run_main_loop(
                         ref_message_id=ref_msg.id,
                     )
 
-        if state_store and guild_id:
-            token_str = await state_store.get_session(guild_id, session_key, engine_id)
+        # Prefer an explicit resume token (from message text or replied-to bot message)
+        # over any stored "latest token".
+        try:
+            resolved_msg = cfg.runtime.resolve_message(
+                text=prompt,
+                reply_text=reply_text,
+                ambient_context=run_context,
+                chat_id=session_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "resume.resolve_failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            resolved_msg = None
+
+        if resolved_msg is not None and resolved_msg.resume_token is not None:
+            resume_token = resolved_msg.resume_token
+            engine_id = resume_token.engine
+            logger.debug(
+                "resume.extracted_from_reply",
+                engine_id=engine_id,
+                source="reply" if reply_text else "message",
+            )
+
+        if (
+            resume_token is None
+            and state_store
+            and guild_id
+            and cfg.session_mode == "chat"
+        ):
+            token_str = await state_store.get_session(
+                guild_id,
+                session_key,
+                engine_id,
+                author_id=author_id,
+            )
             if token_str:
                 resume_token = ResumeToken(engine=engine_id, value=token_str)
                 logger.info(
                     "session.restored",
                     guild_id=guild_id,
                     session_key=session_key,
+                    author_id=author_id,
                     engine_id=engine_id,
                     token_preview=token_str[:20] + "..."
                     if len(token_str) > 20
@@ -1081,6 +1199,7 @@ async def run_main_loop(
                     "session.not_found",
                     guild_id=guild_id,
                     session_key=session_key,
+                    author_id=author_id,
                     engine_id=engine_id,
                 )
 
@@ -1113,59 +1232,57 @@ async def run_main_loop(
             media_buffer is not None
             and isinstance(message.channel, discord.Thread)
             and thread_id is not None
+            and author_id is not None
             and cfg.files.enabled
             and cfg.files.auto_put
+            and files_allowed
             and run_context is not None
             and run_context.project is not None
         ):
-            author_id = getattr(message.author, "id", None)
-            if isinstance(author_id, int):
-                if message.attachments and not prompt.strip():
-                    media_buffer.add(
-                        message,
-                        prompt="",
-                        guild_id=guild_id,
-                        channel_id=channel_id,
-                        thread_id=thread_id,
-                        job_channel_id=thread_id,
-                        engine_id=engine_id,
-                        resume_token=resume_token,
-                        context=run_context,
-                    )
-                    logger.debug(
-                        "media_group.buffered",
-                        thread_id=thread_id,
-                        author_id=author_id,
-                        message_id=message.id,
-                        attachment_count=len(message.attachments),
-                    )
-                    return
-                if (
-                    prompt.strip()
-                    and not message.attachments
-                    and media_buffer.has_pending(
-                        channel_id=thread_id, author_id=author_id
-                    )
-                ):
-                    media_buffer.add(
-                        message,
-                        prompt=prompt,
-                        guild_id=guild_id,
-                        channel_id=channel_id,
-                        thread_id=thread_id,
-                        job_channel_id=thread_id,
-                        engine_id=engine_id,
-                        resume_token=resume_token,
-                        context=run_context,
-                    )
-                    logger.debug(
-                        "media_group.prompt_attached",
-                        thread_id=thread_id,
-                        author_id=author_id,
-                        message_id=message.id,
-                        prompt_length=len(prompt),
-                    )
-                    return
+            if message.attachments and not prompt.strip():
+                media_buffer.add(
+                    message,
+                    prompt="",
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
+                    job_channel_id=thread_id,
+                    engine_id=engine_id,
+                    resume_token=resume_token,
+                    context=run_context,
+                )
+                logger.debug(
+                    "media_group.buffered",
+                    thread_id=thread_id,
+                    author_id=author_id,
+                    message_id=message.id,
+                    attachment_count=len(message.attachments),
+                )
+                return
+            if (
+                prompt.strip()
+                and not message.attachments
+                and media_buffer.has_pending(channel_id=thread_id, author_id=author_id)
+            ):
+                media_buffer.add(
+                    message,
+                    prompt=prompt,
+                    guild_id=guild_id,
+                    channel_id=channel_id,
+                    thread_id=thread_id,
+                    job_channel_id=thread_id,
+                    engine_id=engine_id,
+                    resume_token=resume_token,
+                    context=run_context,
+                )
+                logger.debug(
+                    "media_group.prompt_attached",
+                    thread_id=thread_id,
+                    author_id=author_id,
+                    message_id=message.id,
+                    prompt_length=len(prompt),
+                )
+                return
 
         # Handle auto_put for file attachments
         logger.debug(
@@ -1174,7 +1291,12 @@ async def run_main_loop(
             auto_put=cfg.files.auto_put,
             attachment_count=len(message.attachments),
         )
-        if cfg.files.enabled and cfg.files.auto_put and message.attachments:
+        if (
+            cfg.files.enabled
+            and cfg.files.auto_put
+            and message.attachments
+            and files_allowed
+        ):
             from takopi.config import ConfigError
 
             from .file_transfer import format_bytes, save_attachment
@@ -1248,7 +1370,11 @@ async def run_main_loop(
         # current task's resume token is ready, then executed with full context.
         # Also queue any message that resumes an existing thread to avoid
         # overlapping runs for the same conversation.
-        session_meta: tuple[int, int | None] = (guild_id, channel_id)
+        session_meta: tuple[int, int | None] | tuple[int, int | None, int] = (
+            (guild_id, channel_id, author_id)
+            if author_id is not None
+            else (guild_id, channel_id)
+        )
         if resume_resolver is not None:
             reply_id = (
                 message.reference.message_id
@@ -1315,6 +1441,7 @@ async def run_main_loop(
                 resume_token=resume_token,
                 context=run_context,
                 engine_id=engine_id,
+                author_id=author_id,
                 thread_id=thread_id,
                 reply_ref=reply_ref,
                 guild_id=guild_id,
@@ -1334,6 +1461,12 @@ async def run_main_loop(
             if interaction.data:
                 custom_id = interaction.data.get("custom_id")
                 if custom_id == CANCEL_BUTTON_ID:
+                    user_id = getattr(getattr(interaction, "user", None), "id", None)
+                    if not isinstance(user_id, int):
+                        user_id = None
+                    if not is_user_allowed(cfg.allowed_user_ids, user_id):
+                        await interaction.response.defer()
+                        return
                     # Get the channel where the cancel was clicked
                     channel_id = interaction.channel_id
                     if channel_id is not None:
@@ -1423,11 +1556,12 @@ async def run_main_loop(
                 # Get resume token for the text channel
                 resume_token: ResumeToken | None = None
                 engine_id = cfg.runtime.default_engine or "claude"
-                token_str = await state_store.get_session(
-                    guild_id, text_channel_id, engine_id
-                )
-                if token_str:
-                    resume_token = ResumeToken(engine=engine_id, value=token_str)
+                if cfg.session_mode == "chat":
+                    token_str = await state_store.get_session(
+                        guild_id, text_channel_id, engine_id
+                    )
+                    if token_str:
+                        resume_token = ResumeToken(engine=engine_id, value=token_str)
 
                 # Use run_job to process the voice message through Claude
                 import time
