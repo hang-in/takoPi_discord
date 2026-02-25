@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     import discord
 
 __all__ = [
+    "PutAttachmentResult",
     "SaveAttachmentResult",
     "ZipTooLargeError",
     "default_upload_name",
@@ -26,6 +27,7 @@ __all__ = [
     "parse_file_command",
     "resolve_path_within_root",
     "save_attachment",
+    "save_attachment_to_path",
     "write_bytes_atomic",
     "zip_directory",
 ]
@@ -217,6 +219,16 @@ class SaveAttachmentResult:
     error: str | None
 
 
+@dataclass(slots=True)
+class PutAttachmentResult:
+    """Result of saving an attachment to an explicit path."""
+
+    rel_path: Path | None
+    size: int | None
+    overwritten: bool = False
+    error: str | None = None
+
+
 async def save_attachment(
     attachment: discord.Attachment,
     run_root: Path,
@@ -293,5 +305,86 @@ async def save_attachment(
     return SaveAttachmentResult(
         rel_path=rel_path,
         size=len(payload),
+        error=None,
+    )
+
+
+async def save_attachment_to_path(
+    attachment: discord.Attachment,
+    run_root: Path,
+    rel_path: Path,
+    deny_globs: Sequence[str],
+    *,
+    max_bytes: int = 20 * 1024 * 1024,
+    force: bool = False,
+) -> PutAttachmentResult:
+    """Save a Discord attachment to an explicit repo-relative path.
+
+    Enforces deny globs, keeps writes within the resolved run root, and refuses
+    overwrites unless `force=True`.
+    """
+    # Check file size
+    if attachment.size > max_bytes:
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error="file is too large to upload",
+        )
+
+    # Check deny rules
+    deny_rule = deny_reason(rel_path, deny_globs)
+    if deny_rule is not None:
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error=f"path denied by rule: {deny_rule}",
+        )
+
+    # Resolve target path
+    target = resolve_path_within_root(run_root, rel_path)
+    if target is None:
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error="upload path escapes the project root",
+        )
+
+    # Existing path checks
+    if target.exists() and target.is_dir():
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error=f"`{rel_path.as_posix()}` is a directory",
+        )
+    overwritten = target.exists()
+    if overwritten and not force:
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error="file already exists (use force to overwrite)",
+        )
+
+    # Download and save the file
+    try:
+        payload = await attachment.read()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        write_bytes_atomic(target, payload)
+    except OSError as e:
+        return PutAttachmentResult(
+            rel_path=None,
+            size=None,
+            overwritten=False,
+            error=f"failed to save file: {e}",
+        )
+
+    return PutAttachmentResult(
+        rel_path=rel_path,
+        size=len(payload),
+        overwritten=overwritten,
         error=None,
     )

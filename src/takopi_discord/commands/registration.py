@@ -14,6 +14,7 @@ from takopi.runner_bridge import RunningTasks
 from takopi.runners.run_options import EngineRunOptions
 
 from .dispatch import dispatch_command
+from ..allowlist import is_user_allowed
 
 if TYPE_CHECKING:
     from ..bridge import DiscordBridgeConfig
@@ -123,10 +124,20 @@ async def _handle_plugin_command(
         await ctx.respond("This command can only be used in a server.", ephemeral=True)
         return
 
+    user_id = getattr(getattr(ctx, "author", None), "id", None)
+    if not isinstance(user_id, int):
+        user_id = None
+    if not is_user_allowed(cfg.allowed_user_ids, user_id):
+        await ctx.respond("You are not allowed to use this bot.", ephemeral=True)
+        return
+
     # Defer quickly, then run in background so the interaction doesn't time out.
     await ctx.defer(ephemeral=True)
 
     guild_id = ctx.guild.id
+    author_id = getattr(getattr(ctx, "author", None), "id", None)
+    if not isinstance(author_id, int):
+        author_id = None
     channel_id = ctx.channel_id
     thread_id = None
 
@@ -174,6 +185,7 @@ async def _handle_plugin_command(
             session_key,
             new_token.engine,
             new_token.value,
+            author_id=author_id,
         )
 
     async def run_command_job() -> None:
