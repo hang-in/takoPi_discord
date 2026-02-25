@@ -19,6 +19,7 @@ from .bridge import (
     DiscordFilesSettings,
     DiscordPresenter,
     DiscordTransport,
+    DiscordVoiceMessageSettings,
 )
 from .client import DiscordBotClient
 from .loop import run_main_loop
@@ -161,6 +162,14 @@ class DiscordBackend(TransportBackend):
             allowed_user_ids=files_allowed_user_ids,
         )
 
+        # Parse voice message transcription settings
+        voice_settings = settings.get("voice_messages", {})
+        voice_messages_config = DiscordVoiceMessageSettings(
+            enabled=voice_settings.get("enabled", False),
+            max_bytes=voice_settings.get("max_bytes", 10 * 1024 * 1024),
+            whisper_model=voice_settings.get("whisper_model", "base"),
+        )
+
         startup_msg = _build_startup_message(
             runtime,
             startup_pwd=os.getcwd(),
@@ -186,6 +195,7 @@ class DiscordBackend(TransportBackend):
             message_overflow=message_overflow,
             trigger_mode_default=trigger_mode_default,
             files=files_config,
+            voice_messages=voice_messages_config,
         )
 
         async def run_loop() -> None:

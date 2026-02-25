@@ -43,6 +43,7 @@ from .prefs import DiscordPrefsStore
 from .render import prepare_discord
 from .state import DiscordStateStore
 from .types import DiscordChannelContext, DiscordThreadContext
+from .voice_messages import WhisperAttachmentTranscriber, is_audio_attachment
 
 if TYPE_CHECKING:
     from takopi.context import RunContext
@@ -458,11 +459,24 @@ async def run_main_loop(
     else:
         logger.info("voice.disabled", reason="OPENAI_API_KEY not set (needed for TTS)")
 
+    voice_attachment_transcriber: WhisperAttachmentTranscriber | None = None
+    if cfg.voice_messages.enabled:
+        whisper_model = os.environ.get(
+            "WHISPER_MODEL", cfg.voice_messages.whisper_model
+        )
+        voice_attachment_transcriber = WhisperAttachmentTranscriber(whisper_model)
+        logger.info(
+            "voice_messages.enabled",
+            whisper_model=whisper_model,
+            max_bytes=cfg.voice_messages.max_bytes,
+        )
+
     logger.info(
         "loop.config",
         has_state_store=state_store is not None,
         guild_id=cfg.guild_id,
         voice_enabled=voice_manager is not None,
+        voice_messages_enabled=cfg.voice_messages.enabled,
     )
 
     def get_running_task(channel_id: int) -> int | None:
@@ -982,6 +996,59 @@ async def run_main_loop(
             if branch_override:
                 logger.info("branch.override", branch=branch_override)
 
+        attachments_for_files = list(message.attachments)
+        audio_attachments = [
+            attachment
+            for attachment in attachments_for_files
+            if is_audio_attachment(attachment)
+        ]
+        non_audio_attachments = [
+            attachment
+            for attachment in attachments_for_files
+            if not is_audio_attachment(attachment)
+        ]
+
+        if audio_attachments and not prompt.strip() and voice_attachment_transcriber:
+            attachment = audio_attachments[0]
+            if attachment.size > cfg.voice_messages.max_bytes:
+                await message.reply(
+                    "Voice message is too large to transcribe.\n"
+                    f"- Size: {attachment.size} bytes\n"
+                    f"- Max: {cfg.voice_messages.max_bytes} bytes",
+                    mention_author=False,
+                )
+                return
+
+            try:
+                payload = await attachment.read()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "voice_messages.read_failed",
+                    filename=attachment.filename,
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+                return
+
+            transcript = await voice_attachment_transcriber.transcribe_bytes(
+                payload,
+                suffix=Path(attachment.filename or "voice.bin").suffix or ".bin",
+            )
+            if not transcript.strip():
+                await message.reply(
+                    "Couldn't transcribe that voice message.", mention_author=False
+                )
+                return
+
+            logger.info(
+                "voice_messages.transcribed",
+                message_id=message.id,
+                filename=attachment.filename,
+                transcript_length=len(transcript),
+            )
+            prompt = transcript
+            attachments_for_files = non_audio_attachments
+
         # Allow empty prompt if @branch was used or if there are attachments (for auto_put)
         has_attachments = bool(message.attachments)
         if (
@@ -989,6 +1056,16 @@ async def run_main_loop(
             and not branch_override
             and (not has_attachments or not files_allowed)
         ):
+            return
+
+        if (
+            audio_attachments
+            and not non_audio_attachments
+            and not prompt.strip()
+            and branch_override is None
+            and not cfg.voice_messages.enabled
+        ):
+            logger.debug("voice_messages.ignored", reason="disabled")
             return
 
         # Apply branch override to context
@@ -1239,7 +1316,7 @@ async def run_main_loop(
             and run_context is not None
             and run_context.project is not None
         ):
-            if message.attachments and not prompt.strip():
+            if attachments_for_files and not prompt.strip():
                 media_buffer.add(
                     message,
                     prompt="",
@@ -1256,12 +1333,12 @@ async def run_main_loop(
                     thread_id=thread_id,
                     author_id=author_id,
                     message_id=message.id,
-                    attachment_count=len(message.attachments),
+                    attachment_count=len(attachments_for_files),
                 )
                 return
             if (
                 prompt.strip()
-                and not message.attachments
+                and not attachments_for_files
                 and media_buffer.has_pending(channel_id=thread_id, author_id=author_id)
             ):
                 media_buffer.add(
@@ -1289,12 +1366,12 @@ async def run_main_loop(
             "auto_put.check",
             files_enabled=cfg.files.enabled,
             auto_put=cfg.files.auto_put,
-            attachment_count=len(message.attachments),
+            attachment_count=len(attachments_for_files),
         )
         if (
             cfg.files.enabled
             and cfg.files.auto_put
-            and message.attachments
+            and attachments_for_files
             and files_allowed
         ):
             from takopi.config import ConfigError
@@ -1306,7 +1383,7 @@ async def run_main_loop(
                 logger.debug(
                     "auto_put.skipped",
                     reason="no project context",
-                    attachment_count=len(message.attachments),
+                    attachment_count=len(attachments_for_files),
                 )
             else:
                 try:
@@ -1319,7 +1396,7 @@ async def run_main_loop(
                     file_annotations: list[str] = []
                     saved_files: list[str] = []
 
-                    for attachment in message.attachments:
+                    for attachment in attachments_for_files:
                         result = await save_attachment(
                             attachment,
                             run_root,
