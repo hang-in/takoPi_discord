@@ -4,3 +4,7 @@ __pycache__/
 dist/
 .worktrees/
 incoming/
+.venv/
+.venv.old/
+debug.log
+takopi.toml

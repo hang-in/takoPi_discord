@@ -1,0 +1,77 @@
+# Copy this file to `takopi.toml` and fill in the real values.
+# Keep `takopi.toml` out of git because it contains your Discord bot token.
+
+# Transport backend to use.
+transport = "discord"
+
+# Default engine if a project or channel does not override it.
+# Must match an engine installed in your takopi environment.
+default_engine = "claude"
+
+# Optional global default project alias from the [projects] section below.
+# If you only use explicit /bind commands in Discord, you can leave this unset.
+# default_project = "discord"
+
+[transports.discord]
+# Required: Discord bot token from the Discord Developer Portal.
+bot_token = "paste-your-bot-token-here"
+
+# Optional: Restrict the bot to a single guild/server.
+# Replace with your Discord server ID.
+guild_id = 1459111087457701952
+
+# How long answers should be handled when Discord message length is exceeded.
+# "split" is usually the best choice for coding output.
+message_overflow = "split"
+
+# "stateless" starts each message fresh unless resumed by reply/thread state.
+# "chat" stores per-channel or per-thread resume tokens for ongoing sessions.
+session_mode = "stateless"
+
+# Include takopi resume lines in responses.
+show_resume_line = true
+
+# Default response behavior for newly bound channels/threads.
+# "all" responds to normal messages, "mentions" only responds when mentioned.
+trigger_mode_default = "all"
+
+# Optional: Restrict who can use the bot at all.
+# Use Discord user IDs.
+# allowed_user_ids = [123456789012345678]
+
+# Optional: Buffer bursts of attachments before sending one combined job.
+# media_group_debounce_s = 0.75
+
+[projects.discord]
+# Local repository path for this project alias.
+# Use an absolute path on the machine where takopi runs.
+path = "D:/privateProject/_research/_util/takopi-discord"
+
+# Directory for git worktrees, relative to `path` unless absolute.
+worktrees_dir = ".worktrees"
+
+# Default engine for this project alias.
+default_engine = "claude"
+
+# Base branch used when a channel is bound without a thread-specific branch.
+worktree_base = "main"
+
+# Optional: Auto-map a transport-specific chat ID in transports that support it.
+# Discord currently relies on slash commands like `/bind`, so this is usually omitted.
+# chat_id = 0
+
+# Optional file transfer settings.
+# Enable only if you want `/file get` and `/file put`.
+# [transports.discord.files]
+# enabled = true
+# auto_put = true
+# auto_put_mode = "upload"
+# uploads_dir = "incoming"
+# max_upload_bytes = 20971520
+# deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
+
+# Optional voice-message transcription settings for audio attachments in text chat.
+# [transports.discord.voice_messages]
+# enabled = true
+# max_bytes = 10485760
+# whisper_model = "base"
