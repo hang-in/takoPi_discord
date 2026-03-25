@@ -159,6 +159,28 @@ The onboarding flow can generate an invite URL, or you can build one from the ap
 
 ## takopi Configuration
 
+### Important: Current `takopi` Core Limitation
+
+The current public `takopi` core still assumes a Telegram transport config exists during settings validation, even if you only want to run Discord.
+
+That means a Discord-only config like this is not enough on stock `takopi`:
+
+```toml
+transport = "discord"
+
+[transports.discord]
+bot_token = "..."
+```
+
+For now, the practical workaround is:
+
+- keep `transport = "discord"`
+- add a placeholder `[transports.telegram]` section
+- do not use Telegram at runtime
+
+The placeholder Telegram config is only there to satisfy current core validation.
+It is not used when `transport = "discord"`.
+
 ### Recommended Repository Layout
 
 Commit `takopi.toml.temp` to git and keep the real `takopi.toml` local only.
@@ -193,6 +215,12 @@ Recommended locations:
 transport = "discord"
 default_engine = "claude"
 
+[transports.telegram]
+# Placeholder values required by current stock takopi core.
+# These are not used when `transport = "discord"`.
+bot_token = "unused"
+chat_id = 1
+
 [transports.discord]
 bot_token = "YOUR_DISCORD_BOT_TOKEN"
 guild_id = 1459111087457701952
@@ -212,6 +240,9 @@ worktree_base = "main"
 
 - `transport = "discord"`
   - tells takopi to start the Discord transport
+- `[transports.telegram]`
+  - currently required as a placeholder for stock takopi core validation
+  - not used at runtime when `transport = "discord"`
 - `default_engine`
   - default engine when no project or per-channel override is active
 - `[transports.discord].bot_token`
@@ -488,6 +519,7 @@ The config file was found but failed Discord setup checks.
 Check:
 
 - `transport = "discord"`
+- `[transports.telegram]` placeholder exists if you are using stock takopi
 - `[transports.discord]` exists
 - `bot_token` is present
 
@@ -498,6 +530,7 @@ The config file exists but failed takopi settings validation.
 Check:
 
 - TOML syntax
+- placeholder `[transports.telegram]` exists on stock takopi
 - engine IDs are valid
 - project paths are correct
 - the file is being loaded from the directory you expect

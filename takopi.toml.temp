@@ -12,6 +12,13 @@ default_engine = "claude"
 # If you only use explicit /bind commands in Discord, you can leave this unset.
 # default_project = "discord"
 
+[transports.telegram]
+# Placeholder values required by the current public takopi core.
+# They are not used when `transport = "discord"`.
+# Keep them simple; they only exist to satisfy core validation.
+bot_token = "unused"
+chat_id = 1
+
 [transports.discord]
 # Required: Discord bot token from the Discord Developer Portal.
 bot_token = "paste-your-bot-token-here"
