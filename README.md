@@ -2,6 +2,20 @@
 
 Discord transport plugin for [takopi](https://github.com/banteg/takopi).
 
+## Claude Code Must-Know
+
+Before Claude Code edits or sets up this repository, it should assume all of the following:
+
+- This repository is for Discord transport only.
+- Real local secrets must go in `takopi.toml`, not in `takopi.toml.temp`.
+- `takopi.toml.temp` is the public template that should be copied and filled in locally.
+- `transport = "discord"` is the intended runtime mode.
+- Stock `takopi` may still require a placeholder `[transports.telegram]` section even when only Discord is used.
+- In `session_mode = "chat"`, plain channel conversations should stay in the same Discord channel and should not auto-create a new thread for each message.
+- `@branch-name` is the explicit signal for branch/thread-oriented work.
+- Do not commit bot tokens, API keys, local absolute paths, `discord_state.json`, `takopi.lock`, or other local runtime artifacts.
+- If setup behaves differently from this README, check which `takopi.toml` file is actually being loaded first.
+
 ## Claude Code Quick Start
 
 If you cloned this repository and want Claude Code to install and configure it for you, run Claude Code in the repository root and give it the handoff prompt below.
