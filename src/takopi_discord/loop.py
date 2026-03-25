@@ -1092,8 +1092,19 @@ async def run_main_loop(
                 )
                 return
 
-        # Create thread for the response if not already in a thread
-        if thread_id is None and isinstance(message.channel, discord.TextChannel):
+        auto_thread_enabled = not (
+            cfg.session_mode == "chat" and branch_override is None
+        )
+
+        # Create thread for the response if not already in a thread.
+        # In chat mode, plain channel conversations must stay in the same channel
+        # so the same resume token is reused until the user explicitly starts a
+        # separate thread or resets the session.
+        if (
+            auto_thread_enabled
+            and thread_id is None
+            and isinstance(message.channel, discord.TextChannel)
+        ):
             # Thread name is just the branch if @branch was used, otherwise prompt snippet
             if branch_override:
                 thread_name = branch_override
