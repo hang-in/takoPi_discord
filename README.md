@@ -2,52 +2,85 @@
 
 Discord transport plugin for [takopi](https://github.com/banteg/takopi).
 
-This project lets you run takopi agents from Discord text channels, threads, file uploads, and optional voice channels.
+## Claude Code Quick Start
 
-## What It Does
+If you cloned this repository and want Claude Code to install and configure it for you, run Claude Code in the repository root and give it the handoff prompt below.
 
-`takopi-discord` maps Discord structure to takopi working context:
+Example:
 
-| Discord | takopi | Meaning |
+```bash
+git clone https://github.com/hang-in/takoPi_discord.git
+cd takoPi_discord
+claude
+```
+
+Paste this prompt into Claude Code:
+
+```text
+Read README.md completely, then set up this repository for local use.
+
+Tasks:
+1. Verify Python and virtualenv state.
+2. Install dependencies in the local .venv.
+3. Create takopi.toml from takopi.toml.temp if it does not exist.
+4. Explain which values I must fill in manually, especially Discord bot token, guild ID, and local project path.
+5. Verify the bot can start, and show me the exact next command to run.
+
+Important constraints:
+- Follow the README exactly.
+- Assume I want Discord only.
+- Stock takopi currently requires a placeholder [transports.telegram] section even when transport = "discord", so keep that workaround if needed.
+- Do not commit secrets.
+```
+
+---
+
+## 한국어 가이드
+
+### 개요
+
+`takopi-discord`는 takopi를 Discord에서 사용할 수 있게 해주는 transport 플러그인입니다.
+
+주요 동작 방식:
+
+- Discord 텍스트 채널을 로컬 프로젝트와 연결
+- 메시지를 보내면 takopi agent가 실행
+- `@branch-name` 형식으로 브랜치를 지정하면 해당 브랜치용 thread 작업 가능
+- slash command로 상태, 엔진, 모델, 트리거 모드 등을 제어
+- 선택적으로 파일 업로드/다운로드, 음성 채널, 음성 메시지 전사 지원
+
+매핑 개념:
+
+| Discord | takopi | 설명 |
 | --- | --- | --- |
-| Server category | visual grouping | organize projects |
-| Text channel | project context | one repository or work area |
-| Thread | branch/session | one focused task or branch |
-| Voice channel | voice session | speech-based interaction |
+| Text channel | project context | 로컬 저장소 하나 |
+| Thread | branch/session | 작업 단위 또는 브랜치 단위 대화 |
+| Voice channel | voice session | 음성 대화 세션 |
 
-Typical flow:
+### 요구 사항
 
-1. Bind a Discord channel to a local repository.
-2. Send a message in that channel.
-3. The bot creates or uses a thread and runs the configured agent.
-4. Use `@branch-name` to force work onto a specific branch.
-5. Use slash commands to inspect or change behavior.
-
-## Requirements
-
-- Windows, macOS, or Linux
-- Python 3.14+
+- Python 3.14 이상
 - `git`
-- A working takopi installation
-- At least one takopi engine installed and available on `PATH`
-  - Example: `claude`, `codex`, `opencode`, `pi`
-- A Discord bot token
+- 동작 가능한 `takopi`
+- 최소 1개 이상의 takopi 엔진 CLI
+  - 예: `claude`, `codex`, `opencode`, `pi`
+- Discord bot token
 
-Optional:
+선택 사항:
 
-- `ffmpeg` for voice-message transcription
-- OpenAI API key for text-to-speech in voice channels
+- `ffmpeg`
+- `OPENAI_API_KEY` (음성 채널 TTS 용도)
 
-## Install From Source
+### 설치
 
-### 1. Clone the Repository
+#### 1. 저장소 클론
 
 ```bash
 git clone https://github.com/hang-in/takoPi_discord.git
 cd takoPi_discord
 ```
 
-### 2. Create a Virtual Environment
+#### 2. 가상환경 생성
 
 Windows PowerShell:
 
@@ -56,40 +89,39 @@ C:\Python\Python314\python.exe -m venv .venv
 . .\.venv\Scripts\Activate.ps1
 ```
 
-macOS/Linux:
+macOS / Linux:
 
 ```bash
 python3.14 -m venv .venv
 source .venv/bin/activate
 ```
 
-Notes:
+권장:
 
-- Prefer an ASCII-only Python install path on Windows, such as `C:\Python\Python314`.
-- If your Python install lives under a non-ASCII user path and launcher issues appear, recreate the venv from an ASCII path Python install.
+- Windows에서는 가능하면 ASCII 경로의 Python 설치를 사용하세요.
+- 예: `C:\Python\Python314`
+- 사용자 홈 경로에 한글이 포함된 Python 설치는 launcher 문제를 일으킬 수 있습니다.
 
-### 3. Install the Package
-
-Using `uv`:
+#### 3. 패키지 설치
 
 ```bash
 uv pip install -e .
 ```
 
-Or using `pip`:
+또는:
 
 ```bash
 python -m pip install -e .
 ```
 
-### 4. Verify the Environment
+#### 4. 설치 확인
 
 ```bash
 python --version
 takopi --version
 ```
 
-If `takopi` is not found, use the venv-local executable:
+필요하면 venv 내부 실행 파일을 직접 사용하세요.
 
 Windows:
 
@@ -97,47 +129,39 @@ Windows:
 .venv\Scripts\takopi --version
 ```
 
-macOS/Linux:
+### Discord 봇 설정
 
-```bash
-.venv/bin/takopi --version
-```
+#### 1. Discord Developer Portal에서 Application 생성
 
-## Discord Bot Setup
+1. <https://discord.com/developers/applications> 접속
+2. `New Application` 클릭
+3. 앱 이름 입력
 
-### 1. Create the Application
+#### 2. Bot 생성
 
-1. Open <https://discord.com/developers/applications>
-2. Click `New Application`
-3. Give it a name such as `takopi-discord`
+1. `Bot` 탭 이동
+2. `Add Bot` 또는 `Reset Token`
+3. bot token 복사
 
-### 2. Create the Bot
+#### 3. Privileged Intents 활성화
 
-1. Open the `Bot` tab
-2. Click `Reset Token` or `Add Bot`
-3. Copy the bot token
-4. Keep it private
-
-### 3. Enable Required Privileged Intents
-
-Open the bot settings in the Discord Developer Portal and enable:
+현재 코드 기준으로 아래 두 개는 반드시 켜는 것을 권장합니다.
 
 - `Message Content Intent`
 - `Server Members Intent`
 
-Optional:
+있어도 문제 없는 항목:
 
 - `Presence Intent`
 
-Why:
+이유:
 
-- `Message Content Intent` is required so the bot can read normal messages.
-- `Server Members Intent` is required by the current implementation because the bot requests member intent during startup.
-- `Presence Intent` is not required by the current code path, but enabling it does not hurt.
+- `Message Content Intent`: 일반 메시지 내용을 읽기 위해 필요
+- `Server Members Intent`: 현재 구현이 member intent를 요청함
 
-### 4. Invite the Bot
+#### 4. Bot 권한
 
-Give the bot at least these permissions:
+최소 권장 권한:
 
 - View Channels
 - Send Messages
@@ -149,21 +173,19 @@ Give the bot at least these permissions:
 - Attach Files
 - Use Slash Commands
 
-Optional voice permissions:
+음성 기능을 쓸 경우 추가:
 
 - Connect
 - Speak
 - Manage Channels
 
-The onboarding flow can generate an invite URL, or you can build one from the application client ID.
+### 설정 파일 작성
 
-## takopi Configuration
+#### 중요한 제한 사항
 
-### Important: Current `takopi` Core Limitation
+현재 공개 배포된 stock `takopi` 코어는 Discord만 쓸 때도 설정 validation 단계에서 Telegram transport 항목을 일부 전제합니다.
 
-The current public `takopi` core still assumes a Telegram transport config exists during settings validation, even if you only want to run Discord.
-
-That means a Discord-only config like this is not enough on stock `takopi`:
+즉, 다음처럼 Discord만 적으면 실패할 수 있습니다.
 
 ```toml
 transport = "discord"
@@ -172,52 +194,38 @@ transport = "discord"
 bot_token = "..."
 ```
 
-For now, the practical workaround is:
+현재 실사용 workaround:
 
-- keep `transport = "discord"`
-- add a placeholder `[transports.telegram]` section
-- do not use Telegram at runtime
+- `transport = "discord"` 유지
+- placeholder `[transports.telegram]` 추가
+- 실제로 Telegram transport는 사용하지 않음
 
-The placeholder Telegram config is only there to satisfy current core validation.
-It is not used when `transport = "discord"`.
+즉 아래 Telegram 값은 실행용이 아니라 **core validation 통과용 placeholder**입니다.
 
-### Recommended Repository Layout
-
-Commit `takopi.toml.temp` to git and keep the real `takopi.toml` local only.
-
-- `takopi.toml.temp`: safe template for GitHub
-- `takopi.toml`: real local configuration with secrets
-
-### Create `takopi.toml`
-
-Copy the template:
+#### `takopi.toml` 생성
 
 ```bash
 cp takopi.toml.temp takopi.toml
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 Copy-Item takopi.toml.temp takopi.toml
 ```
 
-Then edit `takopi.toml`.
+권장 위치:
 
-Recommended locations:
+- 기본적으로는 `~/.takopi/takopi.toml`
+- 로컬 설정 우선 로직을 별도로 쓰는 경우 프로젝트 루트 사용 가능
 
-- default takopi behavior: copy it to `~/.takopi/takopi.toml`
-- project-local workflow: keep it in the repository root if your takopi environment is configured to load local config first
-
-### Minimal Working Example
+#### 최소 동작 예시
 
 ```toml
 transport = "discord"
 default_engine = "claude"
 
 [transports.telegram]
-# Placeholder values required by current stock takopi core.
-# These are not used when `transport = "discord"`.
 bot_token = "unused"
 chat_id = 1
 
@@ -236,29 +244,13 @@ default_engine = "claude"
 worktree_base = "main"
 ```
 
-### Configuration Notes
+설명:
 
-- `transport = "discord"`
-  - tells takopi to start the Discord transport
-- `[transports.telegram]`
-  - currently required as a placeholder for stock takopi core validation
-  - not used at runtime when `transport = "discord"`
-- `default_engine`
-  - default engine when no project or per-channel override is active
-- `[transports.discord].bot_token`
-  - required Discord bot token
-- `[transports.discord].guild_id`
-  - optional server restriction; recommended for private use
-- `message_overflow = "split"`
-  - safer for code-heavy outputs than trimming
-- `session_mode = "stateless"`
-  - each request is fresh unless resumed from thread/reply context
-- `session_mode = "chat"`
-  - stores per-channel or per-thread resume tokens
-- `[projects.<alias>]`
-  - defines reusable local repository contexts
+- `[transports.telegram]`: stock takopi validation 통과용 placeholder
+- `[transports.discord]`: 실제 Discord 실행 설정
+- `[projects.discord]`: 로컬 프로젝트 경로와 worktree 기본값
 
-### Optional File Transfer Configuration
+#### 선택 설정: 파일 전송
 
 ```toml
 [transports.discord.files]
@@ -270,7 +262,7 @@ max_upload_bytes = 20971520
 deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
 ```
 
-### Optional Voice Message Configuration
+#### 선택 설정: 음성 메시지 전사
 
 ```toml
 [transports.discord.voice_messages]
@@ -279,23 +271,7 @@ max_bytes = 10485760
 whisper_model = "base"
 ```
 
-## How Configuration Is Resolved
-
-Safe assumption for public installs:
-
-- takopi reads its config from `~/.takopi/takopi.toml`
-
-If your local takopi setup has been patched or wrapped to prefer project-local config, you may also run from a repository that contains `takopi.toml`.
-
-If you are unsure, place the real config at:
-
-```text
-~/.takopi/takopi.toml
-```
-
-## Start the Bot
-
-From the project root:
+### 실행
 
 Windows:
 
@@ -303,68 +279,53 @@ Windows:
 .venv\Scripts\takopi --transport discord
 ```
 
-macOS/Linux:
+macOS / Linux:
 
 ```bash
 .venv/bin/takopi --transport discord
 ```
 
-Expected startup behavior:
+정상 로그 예시:
 
-1. takopi loads config
-2. Discord transport registers slash commands
-3. The bot connects to Discord Gateway
-4. You should see startup logs such as:
-   - `gateway.connecting`
-   - `gateway.connected`
-   - `bot.ready`
+- `gateway.connecting`
+- `gateway.connected`
+- `bot.ready`
 
-## First-Time Usage in Discord
+### Discord에서 최초 사용 방법
 
-### 1. Bind a Channel to a Repository
-
-In a Discord text channel:
+#### 1. 채널을 로컬 프로젝트와 바인딩
 
 ```text
 /bind D:/privateProject/_research/_util/takopi-discord
 ```
 
-Arguments:
-
-- `project`: local repository path
-- `worktrees_dir`: usually `.worktrees`
-- `default_engine`: example `claude`
-- `worktree_base`: example `main`
-
-Example:
+보다 명시적으로:
 
 ```text
 /bind D:/privateProject/_research/_util/takopi-discord .worktrees claude main
 ```
 
-### 2. Check Status
+#### 2. 상태 확인
 
 ```text
 /status
 ```
 
-### 3. Send a Normal Prompt
+#### 3. 일반 작업
 
 ```text
-add a detailed README section for installation on Windows
+README 설치 가이드를 윈도우 기준으로 더 자세히 써줘
 ```
 
-### 4. Force a Branch With `@branch`
+#### 4. 브랜치 지정 작업
 
 ```text
-@feat/readme rewrite the onboarding docs and add examples
+@feat/readme-docs 설치 문서를 전면 개편해줘
 ```
 
-This creates or uses a thread bound to `feat/readme`.
+이 경우 해당 브랜치 기준 thread 작업이 시작됩니다.
 
-## Core Slash Commands
-
-### Context and Session
+### 주요 Slash Command
 
 - `/bind <project> [worktrees_dir] [default_engine] [worktree_base]`
 - `/unbind`
@@ -372,244 +333,501 @@ This creates or uses a thread bound to `feat/readme`.
 - `/ctx [show|set|clear]`
 - `/new`
 - `/cancel`
-
-### Agent and Model Control
-
 - `/agent [show|set|clear] [engine]`
 - `/model [engine] [model]`
 - `/reasoning [engine] [level]`
 - `/trigger [all|mentions|clear]`
 
-### Engine Commands
+동적 엔진 명령 예시:
 
-Dynamic slash commands are registered for every available engine.
+- `/claude ...`
+- `/codex ...`
+- `/opencode ...`
 
-Examples:
+### 실사용 예시
 
-- `/claude implement the README installation guide`
-- `/codex refactor the setup flow`
-- `/opencode explain this traceback`
-
-### File Transfer
-
-When enabled:
-
-- `/file get <path>`
-- `/file put <path>`
-
-### Voice
-
-When enabled:
-
-- `/voice`
-- `/vc`
-
-## Real Usage Examples
-
-### Example 1: Work in the Bound Default Branch
-
-1. Bind the channel:
+#### 예시 1. 기본 브랜치에서 작업
 
 ```text
 /bind D:/privateProject/_research/_util/takopi-discord
 ```
 
-2. Ask:
+```text
+온보딩 흐름의 사용자 문제점을 정리해줘
+```
+
+#### 예시 2. 특정 브랜치에서 작업
 
 ```text
-review the onboarding flow and list user-facing problems
+@feat/discord-onboarding privileged intents 관련 트러블슈팅 섹션 추가해줘
 ```
 
-The bot uses the channel's default branch, for example `main`.
-
-### Example 2: Start a Branch-Specific Task
+#### 예시 3. 특정 엔진으로만 실행
 
 ```text
-@feat/discord-docs add a troubleshooting section for privileged intents
+/codex 왜 startup 실패 시 이전에는 로그가 안 보였는지 설명해줘
 ```
 
-This creates a thread bound to `feat/discord-docs`.
+### 상태 파일
 
-### Example 3: Override Engine for One Task
-
-```text
-/codex explain why the bot waits forever when startup fails
-```
-
-### Example 4: Resume a Session in Chat Mode
-
-If `session_mode = "chat"`, follow up in the same channel or thread:
-
-```text
-continue and add tests
-```
-
-## Voice Support
-
-Voice support has two separate features.
-
-### Voice Channels
-
-`/voice` creates a temporary voice channel linked to the current text context.
-
-Requirements:
-
-- Discord voice permissions
-- local Whisper via `pywhispercpp`
-- OpenAI API key for TTS responses
-
-Environment variable:
-
-```bash
-OPENAI_API_KEY=your_key_here
-```
-
-### Voice Message Attachments
-
-If `[transports.discord.voice_messages]` is enabled, audio attachments in text chat can be transcribed.
-
-Requirements:
-
-- `ffmpeg`
-- `pywhispercpp`
-
-## State Files
-
-The transport stores local state in:
+로컬 상태 파일:
 
 - `~/.takopi/discord_state.json`
 - `~/.takopi/discord_prefs.json`
 
-These store:
+저장 내용:
 
-- channel and thread bindings
-- per-engine resume tokens
-- trigger mode overrides
-- default engine overrides
-- model and reasoning overrides
+- 채널/스레드 바인딩
+- resume token
+- trigger mode override
+- default engine override
+- model / reasoning override
 
-Do not commit these files.
+### 장애 대응
 
-## Development
+#### `error: configure discord`
 
-### Editable Install
-
-```bash
-uv pip install -e .
-```
-
-### Run Tests
-
-```bash
-pytest
-```
-
-### Lint
-
-```bash
-ruff check .
-```
-
-## Troubleshooting
-
-### `error: configure discord`
-
-The config file was found but failed Discord setup checks.
-
-Check:
+확인 항목:
 
 - `transport = "discord"`
-- `[transports.telegram]` placeholder exists if you are using stock takopi
-- `[transports.discord]` exists
-- `bot_token` is present
+- stock takopi 사용 중이면 placeholder `[transports.telegram]` 존재
+- `[transports.discord]` 존재
+- `bot_token` 존재
 
-### `error: invalid takopi config`
+#### `error: invalid takopi config`
 
-The config file exists but failed takopi settings validation.
+확인 항목:
 
-Check:
+- TOML 문법
+- placeholder `[transports.telegram]`
+- engine ID 오타
+- 프로젝트 경로
 
-- TOML syntax
-- placeholder `[transports.telegram]` exists on stock takopi
-- engine IDs are valid
-- project paths are correct
-- the file is being loaded from the directory you expect
+#### `PrivilegedIntentsRequired`
 
-### `gateway.start_failed` with `PrivilegedIntentsRequired`
-
-Your Discord bot is missing required privileged intents.
-
-Enable these in the Discord Developer Portal:
+Discord Developer Portal에서 아래를 켜세요.
 
 - `Message Content Intent`
 - `Server Members Intent`
 
-### `gateway.connecting` appears but `bot.ready` never appears
+#### `gateway.connecting` 후 `bot.ready`가 안 나옴
 
-Check:
+확인 항목:
 
-- bot token is correct
-- privileged intents are enabled
-- bot was invited to the target server
-- firewall or proxy is not blocking Discord
+- bot token이 맞는지
+- privileged intents가 켜졌는지
+- 봇이 해당 서버에 초대되었는지
+- 네트워크/방화벽 문제
 
-### `lock failed: Permission denied: ~/.takopi/takopi.lock`
+#### `lock failed: Permission denied`
 
-takopi could not create its lock file.
+확인 항목:
 
-Check:
+- 다른 takopi 프로세스가 이미 실행 중인지
+- `~/.takopi` 쓰기 권한이 있는지
 
-- another takopi process is not already running
-- `~/.takopi` is writable
-- your shell or sandbox is not blocking writes to the home directory
+#### Windows에서 `.venv` 런처가 이상함
 
-### `codex not found on PATH`
+권장 절차:
 
-takopi sees the engine in config but cannot find its CLI.
+1. `.venv` 삭제
+2. ASCII 경로 Python으로 재생성
+3. `uv pip install -e .` 재실행
 
-Install the engine or change `default_engine`.
+#### `Failed to hardlink files; falling back to full copy`
 
-### Windows launcher issues or broken venv executables
-
-If `.venv\Scripts\takopi` or `.venv\Scripts\python.exe` behaves inconsistently:
-
-1. delete `.venv`
-2. recreate it with an ASCII-path Python install such as `C:\Python\Python314`
-3. reinstall with `uv pip install -e .`
-
-### `Failed to hardlink files; falling back to full copy`
-
-This is a `uv` performance warning, not a functional failure.
-
-To silence it:
+기능 오류가 아니라 `uv` 성능 경고입니다.
 
 ```bash
 uv pip install -e . --link-mode=copy
 ```
 
-or set:
+### 보안 주의
+
+- 실제 token이 들어간 `takopi.toml`은 커밋하지 마세요.
+- `takopi.toml.temp`만 예시로 올리세요.
+- 가능하면 `guild_id`를 제한하세요.
+- 필요 없으면 파일 전송 기능은 끄세요.
+
+---
+
+## English Guide
+
+### Overview
+
+`takopi-discord` is a Discord transport plugin for takopi.
+
+It lets you:
+
+- bind Discord channels to local repositories
+- run takopi agents from Discord messages
+- use branch-specific threads with `@branch-name`
+- control engine, model, trigger mode, and session behavior with slash commands
+- optionally use file transfer, voice channels, and voice-message transcription
+
+Mapping:
+
+| Discord | takopi | Meaning |
+| --- | --- | --- |
+| Text channel | project context | one repository |
+| Thread | branch/session | task or branch-scoped conversation |
+| Voice channel | voice session | speech-based interaction |
+
+### Requirements
+
+- Python 3.14+
+- `git`
+- working `takopi`
+- at least one installed takopi engine CLI
+- a Discord bot token
+
+Optional:
+
+- `ffmpeg`
+- `OPENAI_API_KEY` for TTS in voice channels
+
+### Installation
+
+#### 1. Clone the Repository
 
 ```bash
-UV_LINK_MODE=copy
+git clone https://github.com/hang-in/takoPi_discord.git
+cd takoPi_discord
 ```
 
-## Security Notes
+#### 2. Create a Virtual Environment
 
-- Never commit `takopi.toml` with a real Discord token.
-- Prefer `takopi.toml.temp` for examples.
+Windows PowerShell:
+
+```powershell
+C:\Python\Python314\python.exe -m venv .venv
+. .\.venv\Scripts\Activate.ps1
+```
+
+macOS / Linux:
+
+```bash
+python3.14 -m venv .venv
+source .venv/bin/activate
+```
+
+Recommended:
+
+- On Windows, prefer an ASCII-only Python installation path.
+- Example: `C:\Python\Python314`
+
+#### 3. Install the Package
+
+```bash
+uv pip install -e .
+```
+
+Or:
+
+```bash
+python -m pip install -e .
+```
+
+#### 4. Verify
+
+```bash
+python --version
+takopi --version
+```
+
+If needed, call the venv-local executable directly:
+
+Windows:
+
+```powershell
+.venv\Scripts\takopi --version
+```
+
+### Discord Bot Setup
+
+#### 1. Create the Application
+
+1. Open <https://discord.com/developers/applications>
+2. Click `New Application`
+3. Give it a name
+
+#### 2. Create the Bot
+
+1. Open the `Bot` tab
+2. Create or reset the bot token
+3. Copy the token
+
+#### 3. Enable Required Privileged Intents
+
+Enable:
+
+- `Message Content Intent`
+- `Server Members Intent`
+
+Optional:
+
+- `Presence Intent`
+
+#### 4. Bot Permissions
+
+Recommended minimum permissions:
+
+- View Channels
+- Send Messages
+- Create Public Threads
+- Send Messages in Threads
+- Manage Threads
+- Read Message History
+- Add Reactions
+- Attach Files
+- Use Slash Commands
+
+Optional for voice:
+
+- Connect
+- Speak
+- Manage Channels
+
+### Configuration
+
+#### Important Current Limitation
+
+The current public stock `takopi` core still assumes Telegram transport config exists during validation, even when you only want Discord.
+
+That means you currently need a placeholder `[transports.telegram]` section.
+
+It is only a validation workaround.
+It is not used at runtime when `transport = "discord"`.
+
+#### Create `takopi.toml`
+
+```bash
+cp takopi.toml.temp takopi.toml
+```
+
+Windows PowerShell:
+
+```powershell
+Copy-Item takopi.toml.temp takopi.toml
+```
+
+Recommended location:
+
+- safest default: `~/.takopi/takopi.toml`
+
+#### Minimal Working Example
+
+```toml
+transport = "discord"
+default_engine = "claude"
+
+[transports.telegram]
+bot_token = "unused"
+chat_id = 1
+
+[transports.discord]
+bot_token = "YOUR_DISCORD_BOT_TOKEN"
+guild_id = 1459111087457701952
+message_overflow = "split"
+session_mode = "stateless"
+show_resume_line = true
+trigger_mode_default = "all"
+
+[projects.discord]
+path = "D:/privateProject/_research/_util/takopi-discord"
+worktrees_dir = ".worktrees"
+default_engine = "claude"
+worktree_base = "main"
+```
+
+#### Optional File Transfer
+
+```toml
+[transports.discord.files]
+enabled = true
+auto_put = true
+auto_put_mode = "upload"
+uploads_dir = "incoming"
+max_upload_bytes = 20971520
+deny_globs = [".git/**", ".env", ".envrc", "**/*.pem", "**/.ssh/**"]
+```
+
+#### Optional Voice Message Transcription
+
+```toml
+[transports.discord.voice_messages]
+enabled = true
+max_bytes = 10485760
+whisper_model = "base"
+```
+
+### Start the Bot
+
+Windows:
+
+```powershell
+.venv\Scripts\takopi --transport discord
+```
+
+macOS / Linux:
+
+```bash
+.venv/bin/takopi --transport discord
+```
+
+Expected logs:
+
+- `gateway.connecting`
+- `gateway.connected`
+- `bot.ready`
+
+### First-Time Usage in Discord
+
+#### 1. Bind a Channel
+
+```text
+/bind D:/privateProject/_research/_util/takopi-discord
+```
+
+More explicit example:
+
+```text
+/bind D:/privateProject/_research/_util/takopi-discord .worktrees claude main
+```
+
+#### 2. Check Status
+
+```text
+/status
+```
+
+#### 3. Send a Prompt
+
+```text
+Rewrite the installation section for Windows users.
+```
+
+#### 4. Use a Branch-Specific Thread
+
+```text
+@feat/readme-docs rewrite onboarding and troubleshooting docs
+```
+
+### Main Slash Commands
+
+- `/bind <project> [worktrees_dir] [default_engine] [worktree_base]`
+- `/unbind`
+- `/status`
+- `/ctx [show|set|clear]`
+- `/new`
+- `/cancel`
+- `/agent [show|set|clear] [engine]`
+- `/model [engine] [model]`
+- `/reasoning [engine] [level]`
+- `/trigger [all|mentions|clear]`
+
+Dynamic engine examples:
+
+- `/claude ...`
+- `/codex ...`
+- `/opencode ...`
+
+### Real Usage Examples
+
+#### Example 1. Work on the default branch
+
+```text
+/bind D:/privateProject/_research/_util/takopi-discord
+```
+
+```text
+Review the onboarding flow and list user-facing problems.
+```
+
+#### Example 2. Work on a specific branch
+
+```text
+@feat/discord-onboarding add a troubleshooting section for privileged intents
+```
+
+#### Example 3. Use a specific engine
+
+```text
+/codex explain why startup failures used to be silent
+```
+
+### State Files
+
+Local state is stored in:
+
+- `~/.takopi/discord_state.json`
+- `~/.takopi/discord_prefs.json`
+
+### Troubleshooting
+
+#### `error: configure discord`
+
+Check:
+
+- `transport = "discord"`
+- placeholder `[transports.telegram]` exists on stock takopi
+- `[transports.discord]` exists
+- `bot_token` exists
+
+#### `error: invalid takopi config`
+
+Check:
+
+- TOML syntax
+- placeholder `[transports.telegram]`
+- engine IDs
+- project path
+
+#### `PrivilegedIntentsRequired`
+
+Enable in Discord Developer Portal:
+
+- `Message Content Intent`
+- `Server Members Intent`
+
+#### `gateway.connecting` appears but `bot.ready` does not
+
+Check:
+
+- token correctness
+- privileged intents
+- bot invite
+- firewall or network restrictions
+
+#### `lock failed: Permission denied`
+
+Check:
+
+- another takopi process is already running
+- `~/.takopi` is writable
+
+#### Broken venv launcher on Windows
+
+Recommended recovery:
+
+1. delete `.venv`
+2. recreate it with an ASCII-path Python install
+3. reinstall with `uv pip install -e .`
+
+#### `Failed to hardlink files; falling back to full copy`
+
+This is a `uv` performance warning, not a functional failure.
+
+```bash
+uv pip install -e . --link-mode=copy
+```
+
+### Security Notes
+
+- Never commit a real `takopi.toml` with secrets.
+- Commit `takopi.toml.temp` instead.
 - Restrict `guild_id` when possible.
-- Consider `allowed_user_ids` for private servers.
-- Enable file transfer only if you need it.
-
-## Git Ignore Recommendations
-
-This repository ignores:
-
-- `takopi.toml`
-- `.venv/`
-- `.worktrees/`
-- `incoming/`
-- `debug.log`
+- Enable file transfer only when needed.
 
 ## License
 
