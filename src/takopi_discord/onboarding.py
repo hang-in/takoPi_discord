@@ -17,6 +17,7 @@ from takopi.backends import EngineBackend, SetupIssue
 from takopi.backends_helpers import install_issue
 from takopi.config import (
     ConfigError,
+    HOME_CONFIG_PATH,
     dump_toml,
     ensure_table,
     read_config,
@@ -24,7 +25,7 @@ from takopi.config import (
 )
 from takopi.engines import list_backends
 from takopi.logging import suppress_logs
-from takopi.settings import HOME_CONFIG_PATH, load_settings
+from takopi.settings import load_settings
 from takopi.transports import SetupResult
 
 __all__ = [
@@ -42,12 +43,29 @@ def _display_path(path: Path) -> str:
         return str(path)
 
 
+def _resolve_default_config_path() -> Path:
+    cwd_path = Path.cwd() / "takopi.toml"
+    if cwd_path.exists():
+        return cwd_path
+    if HOME_CONFIG_PATH.exists():
+        return HOME_CONFIG_PATH
+    return cwd_path
+
+
 _CREATE_CONFIG_TITLE = "create a config"
 _CONFIGURE_DISCORD_TITLE = "configure discord"
 
 
-def config_issue(path: Path, *, title: str) -> SetupIssue:
-    return SetupIssue(title, (f"   {_display_path(path)}",))
+def config_issue(
+    path: Path,
+    *,
+    title: str,
+    reason: str | None = None,
+) -> SetupIssue:
+    lines = [f"   {_display_path(path)}"]
+    if reason:
+        lines.append(f"   reason: {reason}")
+    return SetupIssue(title, tuple(lines))
 
 
 def _require_discord(settings, config_path: Path) -> Any:
@@ -84,7 +102,7 @@ def check_setup(
 ) -> SetupResult:
     """Check if Discord transport is properly set up."""
     issues: list[SetupIssue] = []
-    config_path = HOME_CONFIG_PATH
+    config_path = _resolve_default_config_path()
     cmd = backend.cli_cmd or backend.id
     backend_issues: list[SetupIssue] = []
     if shutil.which(cmd) is None:
@@ -96,16 +114,22 @@ def check_setup(
             settings = settings.model_copy(update={"transport": transport_override})
         try:
             _require_discord(settings, config_path)
-        except ConfigError:
-            issues.append(config_issue(config_path, title=_CONFIGURE_DISCORD_TITLE))
-    except ConfigError:
+        except ConfigError as exc:
+            issues.append(
+                config_issue(
+                    config_path,
+                    title=_CONFIGURE_DISCORD_TITLE,
+                    reason=str(exc),
+                )
+            )
+    except ConfigError as exc:
         issues.extend(backend_issues)
         title = (
             _CONFIGURE_DISCORD_TITLE
             if config_path.exists() and config_path.is_file()
             else _CREATE_CONFIG_TITLE
         )
-        issues.append(config_issue(config_path, title=title))
+        issues.append(config_issue(config_path, title=title, reason=str(exc)))
         return SetupResult(issues=issues, config_path=config_path)
 
     issues.extend(backend_issues)

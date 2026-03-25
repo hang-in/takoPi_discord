@@ -65,6 +65,7 @@ class DiscordBotClient:
         self._bot: discord.Bot | None = None
         self._ready_event: asyncio.Event | None = None
         self._start_task: asyncio.Task[None] | None = None
+        self._startup_error: Exception | None = None
         # Rate limiting
         self._clock = clock
         self._sleep = sleep
@@ -96,10 +97,17 @@ class DiscordBotClient:
         debug_guilds = [self._guild_id] if self._guild_id else None
         self._bot = discord.Bot(intents=intents, debug_guilds=debug_guilds)
         self._ready_event = asyncio.Event()
+        self._startup_error = None
 
         @self._bot.event
         async def on_ready() -> None:
             assert self._ready_event is not None
+            logger.info(
+                "gateway.connected",
+                user=self._bot.user.name if self._bot.user is not None else None,
+                user_id=self._bot.user.id if self._bot.user is not None else None,
+                guild_id=self._guild_id,
+            )
             self._ready_event.set()
 
         @self._bot.event
@@ -208,6 +216,8 @@ class DiscordBotClient:
         """Start the bot and wait until ready."""
         bot = self._ensure_bot()
         assert self._ready_event is not None
+        self._startup_error = None
+        logger.info("gateway.connecting", guild_id=self._guild_id)
 
         async def _run_bot() -> None:
             try:
@@ -217,10 +227,28 @@ class DiscordBotClient:
             except RuntimeError as e:
                 # Suppress "Session is closed" error during shutdown
                 if "Session is closed" not in str(e):
+                    self._startup_error = e
+                    self._ready_event.set()
+                    logger.exception(
+                        "gateway.start_failed",
+                        error=str(e),
+                        error_type=e.__class__.__name__,
+                    )
                     raise
+            except Exception as exc:  # noqa: BLE001
+                self._startup_error = exc
+                self._ready_event.set()
+                logger.exception(
+                    "gateway.start_failed",
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+                raise
 
         self._start_task = asyncio.create_task(_run_bot(), name="discord-bot-start")
         await self._ready_event.wait()
+        if self._startup_error is not None:
+            raise self._startup_error
 
     async def close(self) -> None:
         """Close the bot connection."""
