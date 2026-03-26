@@ -1,6 +1,6 @@
 # takopi-discord
 
-Discord transport plugin for [takopi](https://github.com/banteg/takopi).
+Standalone Discord coding-agent bridge with vendored `takopi` core.
 
 ## Claude Code Must-Know
 
@@ -10,11 +10,11 @@ Before Claude Code edits or sets up this repository, it should assume all of the
 - Real local secrets must go in `takopi.toml`, not in `takopi.toml.temp`.
 - `takopi.toml.temp` is the public template that should be copied and filled in locally.
 - `transport = "discord"` is the intended runtime mode.
-- Stock `takopi` may still require a placeholder `[transports.telegram]` section even when only Discord is used.
+- This repository includes the core runtime it needs.
 - In `session_mode = "chat"`, plain channel conversations should stay in the same Discord channel and should not auto-create a new thread for each message.
 - `@branch-name` is the explicit signal for branch/thread-oriented work.
 - Do not commit bot tokens, API keys, local absolute paths, `discord_state.json`, `takopi.lock`, or other local runtime artifacts.
-- If setup behaves differently from this README, check which `takopi.toml` file is actually being loaded first.
+- The primary CLI is `takopi-discord`.
 
 ## Claude Code Quick Start
 
@@ -43,7 +43,7 @@ Tasks:
 Important constraints:
 - Follow the README exactly.
 - Assume I want Discord only.
-- Stock takopi currently requires a placeholder [transports.telegram] section even when transport = "discord", so keep that workaround if needed.
+- Use the standalone `takopi-discord` CLI from this repository.
 - Do not commit secrets.
 ```
 
@@ -53,19 +53,19 @@ Important constraints:
 
 ### 개요
 
-`takopi-discord`는 takopi를 Discord에서 사용할 수 있게 해주는 transport 플러그인입니다.
+`takopi-discord`는 vendored core를 포함한 독립 실행형 Discord 코딩 에이전트 브리지입니다.
 
 주요 동작 방식:
 
 - Discord 텍스트 채널을 로컬 프로젝트와 연결
-- 메시지를 보내면 takopi agent가 실행
+- 메시지를 보내면 내장 런타임 기반 agent가 실행
 - `@branch-name` 형식으로 브랜치를 지정하면 해당 브랜치용 thread 작업 가능
 - slash command로 상태, 엔진, 모델, 트리거 모드 등을 제어
 - 선택적으로 파일 업로드/다운로드, 음성 채널, 음성 메시지 전사 지원
 
 매핑 개념:
 
-| Discord | takopi | 설명 |
+| Discord | 내부 런타임 | 설명 |
 | --- | --- | --- |
 | Text channel | project context | 로컬 저장소 하나 |
 | Thread | branch/session | 작업 단위 또는 브랜치 단위 대화 |
@@ -75,8 +75,8 @@ Important constraints:
 
 - Python 3.14 이상
 - `git`
-- 동작 가능한 `takopi`
-- 최소 1개 이상의 takopi 엔진 CLI
+- 동작 가능한 `takopi-discord` 실행 환경
+- 최소 1개 이상의 지원 엔진 CLI
   - 예: `claude`, `codex`, `opencode`, `pi`
 - Discord bot token
 
@@ -132,7 +132,7 @@ python -m pip install -e .
 
 ```bash
 python --version
-takopi --version
+takopi-discord --version
 ```
 
 필요하면 venv 내부 실행 파일을 직접 사용하세요.
@@ -140,7 +140,7 @@ takopi --version
 Windows:
 
 ```powershell
-.venv\Scripts\takopi --version
+.venv\Scripts\takopi-discord --version
 ```
 
 ### Discord 봇 설정
@@ -197,24 +197,8 @@ Windows:
 
 #### 중요한 제한 사항
 
-현재 공개 배포된 stock `takopi` 코어는 Discord만 쓸 때도 설정 validation 단계에서 Telegram transport 항목을 일부 전제합니다.
-
-즉, 다음처럼 Discord만 적으면 실패할 수 있습니다.
-
-```toml
-transport = "discord"
-
-[transports.discord]
-bot_token = "..."
-```
-
-현재 실사용 workaround:
-
-- `transport = "discord"` 유지
-- placeholder `[transports.telegram]` 추가
-- 실제로 Telegram transport는 사용하지 않음
-
-즉 아래 Telegram 값은 실행용이 아니라 **core validation 통과용 placeholder**입니다.
+이 저장소는 필요한 core를 내부에 포함합니다.
+별도의 외부 `takopi` 설치 없이 `takopi-discord` CLI만 기준으로 설정하면 됩니다.
 
 #### `takopi.toml` 생성
 
@@ -230,18 +214,13 @@ Copy-Item takopi.toml.temp takopi.toml
 
 권장 위치:
 
-- 기본적으로는 `~/.takopi/takopi.toml`
-- 로컬 설정 우선 로직을 별도로 쓰는 경우 프로젝트 루트 사용 가능
+- 프로젝트 루트 `takopi.toml`
 
 #### 최소 동작 예시
 
 ```toml
 transport = "discord"
 default_engine = "claude"
-
-[transports.telegram]
-bot_token = "unused"
-chat_id = 1
 
 [transports.discord]
 bot_token = "YOUR_DISCORD_BOT_TOKEN"
@@ -260,7 +239,6 @@ worktree_base = "main"
 
 설명:
 
-- `[transports.telegram]`: stock takopi validation 통과용 placeholder
 - `[transports.discord]`: 실제 Discord 실행 설정
 - `[projects.discord]`: 로컬 프로젝트 경로와 worktree 기본값
 
@@ -290,13 +268,13 @@ whisper_model = "base"
 Windows:
 
 ```powershell
-.venv\Scripts\takopi --transport discord
+.venv\Scripts\takopi-discord --transport discord
 ```
 
 macOS / Linux:
 
 ```bash
-.venv/bin/takopi --transport discord
+.venv/bin/takopi-discord --transport discord
 ```
 
 정상 로그 예시:
@@ -386,8 +364,8 @@ README 설치 가이드를 윈도우 기준으로 더 자세히 써줘
 
 로컬 상태 파일:
 
-- `~/.takopi/discord_state.json`
-- `~/.takopi/discord_prefs.json`
+- 프로젝트 루트 `discord_state.json`
+- 프로젝트 루트 `discord_prefs.json`
 
 저장 내용:
 
@@ -404,7 +382,6 @@ README 설치 가이드를 윈도우 기준으로 더 자세히 써줘
 확인 항목:
 
 - `transport = "discord"`
-- stock takopi 사용 중이면 placeholder `[transports.telegram]` 존재
 - `[transports.discord]` 존재
 - `bot_token` 존재
 
@@ -413,7 +390,6 @@ README 설치 가이드를 윈도우 기준으로 더 자세히 써줘
 확인 항목:
 
 - TOML 문법
-- placeholder `[transports.telegram]`
 - engine ID 오타
 - 프로젝트 경로
 
@@ -437,8 +413,8 @@ Discord Developer Portal에서 아래를 켜세요.
 
 확인 항목:
 
-- 다른 takopi 프로세스가 이미 실행 중인지
-- `~/.takopi` 쓰기 권한이 있는지
+- 다른 `takopi-discord` 프로세스가 이미 실행 중인지
+- 프로젝트 디렉터리 쓰기 권한이 있는지
 
 #### Windows에서 `.venv` 런처가 이상함
 
@@ -469,19 +445,19 @@ uv pip install -e . --link-mode=copy
 
 ### Overview
 
-`takopi-discord` is a Discord transport plugin for takopi.
+`takopi-discord` is a standalone Discord coding-agent bridge with vendored `takopi` core.
 
 It lets you:
 
 - bind Discord channels to local repositories
-- run takopi agents from Discord messages
+- run the bundled agent runtime from Discord messages
 - use branch-specific threads with `@branch-name`
 - control engine, model, trigger mode, and session behavior with slash commands
 - optionally use file transfer, voice channels, and voice-message transcription
 
 Mapping:
 
-| Discord | takopi | Meaning |
+| Discord | Internal runtime | Meaning |
 | --- | --- | --- |
 | Text channel | project context | one repository |
 | Thread | branch/session | task or branch-scoped conversation |
@@ -491,8 +467,8 @@ Mapping:
 
 - Python 3.14+
 - `git`
-- working `takopi`
-- at least one installed takopi engine CLI
+- working `takopi-discord` environment
+- at least one installed supported engine CLI
 - a Discord bot token
 
 Optional:
@@ -546,7 +522,7 @@ python -m pip install -e .
 
 ```bash
 python --version
-takopi --version
+takopi-discord --version
 ```
 
 If needed, call the venv-local executable directly:
@@ -554,7 +530,7 @@ If needed, call the venv-local executable directly:
 Windows:
 
 ```powershell
-.venv\Scripts\takopi --version
+.venv\Scripts\takopi-discord --version
 ```
 
 ### Discord Bot Setup
@@ -606,12 +582,8 @@ Optional for voice:
 
 #### Important Current Limitation
 
-The current public stock `takopi` core still assumes Telegram transport config exists during validation, even when you only want Discord.
-
-That means you currently need a placeholder `[transports.telegram]` section.
-
-It is only a validation workaround.
-It is not used at runtime when `transport = "discord"`.
+This repository vendors the core runtime it needs.
+You do not need a separate external `takopi` installation.
 
 #### Create `takopi.toml`
 
@@ -627,17 +599,13 @@ Copy-Item takopi.toml.temp takopi.toml
 
 Recommended location:
 
-- safest default: `~/.takopi/takopi.toml`
+- project-root `takopi.toml`
 
 #### Minimal Working Example
 
 ```toml
 transport = "discord"
 default_engine = "claude"
-
-[transports.telegram]
-bot_token = "unused"
-chat_id = 1
 
 [transports.discord]
 bot_token = "YOUR_DISCORD_BOT_TOKEN"
@@ -680,13 +648,13 @@ whisper_model = "base"
 Windows:
 
 ```powershell
-.venv\Scripts\takopi --transport discord
+.venv\Scripts\takopi-discord --transport discord
 ```
 
 macOS / Linux:
 
 ```bash
-.venv/bin/takopi --transport discord
+.venv/bin/takopi-discord --transport discord
 ```
 
 Expected logs:
@@ -774,8 +742,8 @@ Review the onboarding flow and list user-facing problems.
 
 Local state is stored in:
 
-- `~/.takopi/discord_state.json`
-- `~/.takopi/discord_prefs.json`
+- project-root `discord_state.json`
+- project-root `discord_prefs.json`
 
 ### Troubleshooting
 
@@ -784,7 +752,6 @@ Local state is stored in:
 Check:
 
 - `transport = "discord"`
-- placeholder `[transports.telegram]` exists on stock takopi
 - `[transports.discord]` exists
 - `bot_token` exists
 
@@ -793,7 +760,6 @@ Check:
 Check:
 
 - TOML syntax
-- placeholder `[transports.telegram]`
 - engine IDs
 - project path
 
@@ -817,8 +783,8 @@ Check:
 
 Check:
 
-- another takopi process is already running
-- `~/.takopi` is writable
+- another `takopi-discord` process is already running
+- the project directory is writable
 
 #### Broken venv launcher on Windows
 
